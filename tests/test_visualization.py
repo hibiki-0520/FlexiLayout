@@ -49,6 +49,28 @@ class WarehouseGridVisualizationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plot_warehouse_grid(grid, slotting)
 
+    def test_draws_current_agent_positions(self) -> None:
+        positions = pd.DataFrame(
+            {
+                "agent_id": ["worker-1", "forklift-1"],
+                "agent_type": ["worker", "forklift"],
+                "x": [1.0, 2.0],
+                "y": [0.0, 1.0],
+            }
+        )
+        figure = plot_warehouse_grid(
+            np.array([["I", ".", "S"], [".", ".", "."]]),
+            agent_positions=positions,
+        )
+        try:
+            axis = figure.axes[0]
+            self.assertEqual(len(axis.collections), 2)
+            labels = [text.get_text() for text in axis.get_legend().get_texts()]
+            self.assertIn("Worker", labels)
+            self.assertIn("Forklift", labels)
+        finally:
+            plt.close(figure)
+
 
 if __name__ == "__main__":
     unittest.main()

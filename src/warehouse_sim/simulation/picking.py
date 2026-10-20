@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 
+import pandas as pd
 import simpy
 
 Coordinate = tuple[int, int]
+
+
+class CargoSize(str, Enum):
+    """Supported handling classes shown in the Streamlit application."""
+
+    SMALL = "小型 (手持ち可)"
+    MEDIUM = "中型 (コンテナ必須)"
+    LARGE = "大型 (フォークリフト必須)"
 
 
 @dataclass(frozen=True)
@@ -28,7 +38,7 @@ class PickingOrder:
 
 @dataclass(frozen=True)
 class SimulationResult:
-    """Aggregate completion and resource KPIs; time values use simulation units."""
+    """Aggregate completion KPIs and a time-series agent trace."""
 
     makespan: float
     worker_utilization: float
@@ -39,7 +49,11 @@ class SimulationResult:
     forklift_wait_time_average: float
     container_wait_time_total: float
     container_wait_time_average: float
+    forklift_active_time_total: float
+    forklift_distance_total: float
+    item_count_total: int
     order_completion_times: Mapping[str, float]
+    trace: pd.DataFrame
 
 
 def _validate_coordinate(name: str, coordinate: Coordinate) -> None:
@@ -62,26 +76,56 @@ def simulate_picking(
     worker_speed: float = 1.0,
     forklift_speed: float = 2.0,
     pick_time_per_unit: float = 1.0,
+    cargo_weight_kg: float = 0.0,
+    cargo_size_class: CargoSize | str = CargoSize.MEDIUM,
+    max_transport_units: int = 5,
+    trace_interval: float = 1.0,
+    record_trace: bool = True,
 ) -> SimulationResult:
-    """Run order picking and return makespan, utilization, and wait-time KPIs.
+    """Simulate orders and optionally record agent positions at each time step.
 
-    Distances use Manhattan distance between grid cells. Workers begin each
-    order at the I/O point, visit its shelves in the supplied order, then wait
-    for a forklift to return the container to the I/O point. Speeds are cells
-    per simulation-time unit; picking time is simulation-time units per item.
-    Resource utilization is productive time divided by fleet capacity over the
-    makespan. Queue wait times are reported as both totals and per-request
-    averages.
+    Trace coordinates use ``x=column`` and ``y=row``. Agent states are
+    ``moving``, ``picking``, or ``waiting``. Simulated travel is interpolated
+    and sampled at ``trace_interval`` time-unit intervals. The trace also
+    includes cumulative wait time and completed order count for dashboard
+    playback.
     """
-    if worker_count <= 0 or forklift_count <= 0 or container_count <= 0:
-        raise ValueError("worker, forklift, and container counts must be positive")
+    if worker_count <= 0 or container_count <= 0:
+        raise ValueError("worker and container counts must be positive")
+    if (
+        not isinstance(forklift_count, int)
+        or isinstance(forklift_count, bool)
+        or forklift_count < 0
+    ):
+        raise ValueError("forklift_count must be a non-negative integer")
     for name, value in (
         ("worker_speed", worker_speed),
         ("forklift_speed", forklift_speed),
         ("pick_time_per_unit", pick_time_per_unit),
     ):
-        if value <= 0:
-            raise ValueError(f"{name} must be positive")
+        if not isinstance(value, (int, float)) or not 0 < value < float("inf"):
+            raise ValueError(f"{name} must be finite and positive")
+    if (
+        not isinstance(cargo_weight_kg, (int, float))
+        or not 0 <= cargo_weight_kg < float("inf")
+    ):
+        raise ValueError("cargo_weight_kg must be finite and non-negative")
+    if (
+        not isinstance(max_transport_units, int)
+        or isinstance(max_transport_units, bool)
+        or max_transport_units <= 0
+    ):
+        raise ValueError("max_transport_units must be a positive integer")
+    if not isinstance(trace_interval, (int, float)) or not (
+        0 < trace_interval < float("inf")
+    ):
+        raise ValueError("trace_interval must be finite and positive")
+    try:
+        cargo_size = CargoSize(cargo_size_class)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported cargo_size_class: {cargo_size_class!r}") from exc
+    if cargo_size is not CargoSize.SMALL and forklift_count <= 0:
+        raise ValueError(f"{cargo_size.value} requires at least one forklift")
 
     _validate_coordinate("io_point", io_point)
     for product_id, position in shelf_positions.items():
@@ -103,74 +147,351 @@ def simulate_picking(
             if not isinstance(pick.quantity, int) or pick.quantity <= 0:
                 raise ValueError("Pick quantities must be positive integers")
 
+    worker_size_factor = {
+        CargoSize.SMALL: 1.0,
+        CargoSize.MEDIUM: 1.0,
+        CargoSize.LARGE: 0.9,
+    }[cargo_size]
+    forklift_size_factor = {
+        CargoSize.SMALL: 1.0,
+        CargoSize.MEDIUM: 1.0,
+        CargoSize.LARGE: 0.8,
+    }[cargo_size]
+    pick_size_factor = {
+        CargoSize.SMALL: 1.0,
+        CargoSize.MEDIUM: 1.0,
+        CargoSize.LARGE: 1.25,
+    }[cargo_size]
+    effective_worker_speed = worker_speed * worker_size_factor / (
+        1 + cargo_weight_kg / 50
+    )
+    effective_forklift_speed = forklift_speed * forklift_size_factor / (
+        1 + cargo_weight_kg / 200
+    )
+    effective_pick_time = pick_time_per_unit * pick_size_factor * (
+        1 + cargo_weight_kg / 100
+    )
+
     env = simpy.Environment()
     workers = simpy.Resource(env, capacity=worker_count)
-    forklifts = simpy.Resource(env, capacity=forklift_count)
+    forklifts = simpy.Resource(env, capacity=max(forklift_count, 1))
     containers = simpy.Resource(env, capacity=container_count)
     worker_active_time = 0.0
     forklift_active_time = 0.0
+    forklift_distance_total = 0.0
     worker_waits: list[float] = []
     forklift_waits: list[float] = []
     container_waits: list[float] = []
     completion_times: dict[str, float] = {}
 
-    def process_order(order: PickingOrder):
-        nonlocal worker_active_time, forklift_active_time
+    agents: dict[str, dict[str, float | str]] = {}
+    for index in range(worker_count):
+        agents[f"worker-{index + 1}"] = {
+            "agent_type": "worker",
+            "x": float(io_point[1]),
+            "y": float(io_point[0]),
+            "state": "waiting",
+        }
+    for index in range(forklift_count):
+        agents[f"forklift-{index + 1}"] = {
+            "agent_type": "forklift",
+            "x": float(io_point[1]),
+            "y": float(io_point[0]),
+            "state": "waiting",
+        }
 
+    worker_assigned = [False] * worker_count
+    forklift_assigned = [False] * forklift_count
+    cumulative_wait = {"worker": 0.0, "forklift": 0.0, "container": 0.0}
+    pending_waits: dict[int, tuple[str, float]] = {}
+    next_wait_id = 0
+    trace_snapshots: dict[float, list[dict[str, float | str | int]]] = {}
+
+    def record_snapshot() -> None:
+        if not record_trace:
+            return
+        time = round(float(env.now), 9)
+        wait_time_total = sum(cumulative_wait.values()) + sum(
+            max(0.0, float(env.now) - started_at)
+            for _, started_at in pending_waits.values()
+        )
+        trace_snapshots[time] = [
+            {
+                "time": time,
+                "agent_id": agent_id,
+                "agent_type": str(agent["agent_type"]),
+                "x": float(agent["x"]),
+                "y": float(agent["y"]),
+                "state": str(agent["state"]),
+                "wait_time_total": wait_time_total,
+                "queue_count": len(pending_waits),
+                "completed_order_count": len(completion_times),
+            }
+            for agent_id, agent in agents.items()
+        ]
+
+    def set_state(agent_id: str, state: str) -> None:
+        agents[agent_id]["state"] = state
+        record_snapshot()
+
+    def sample_trace():
+        while True:
+            yield env.timeout(trace_interval)
+            record_snapshot()
+
+    def move_agent(agent_id: str, destination: Coordinate, speed: float):
+        agent = agents[agent_id]
+        start_row, start_column = float(agent["y"]), float(agent["x"])
+        end_row, end_column = destination
+        distance = abs(end_row - start_row) + abs(end_column - start_column)
+        if distance == 0:
+            agent["x"] = float(end_column)
+            agent["y"] = float(end_row)
+            record_snapshot()
+            return
+
+        duration = distance / speed
+        elapsed = 0.0
+        set_state(agent_id, "moving")
+        while elapsed < duration:
+            step_duration = min(float(trace_interval), duration - elapsed)
+            yield env.timeout(step_duration)
+            elapsed += step_duration
+            progress = min(elapsed / duration, 1.0)
+            travelled = distance * progress
+            row_delta = end_row - start_row
+            column_delta = end_column - start_column
+            row_distance = min(abs(row_delta), travelled)
+            remaining_distance = max(travelled - abs(row_delta), 0.0)
+            agent["y"] = start_row + (
+                (1 if row_delta >= 0 else -1) * row_distance
+            )
+            agent["x"] = start_column + (
+                (1 if column_delta >= 0 else -1)
+                * min(abs(column_delta), remaining_distance)
+            )
+            record_snapshot()
+        agent["x"] = float(end_column)
+        agent["y"] = float(end_row)
+        record_snapshot()
+
+    def perform_picking(agent_id: str, duration: float):
+        nonlocal worker_active_time
+        worker_active_time += duration
+        remaining = duration
+        set_state(agent_id, "picking")
+        while remaining > 0:
+            step_duration = min(float(trace_interval), remaining)
+            yield env.timeout(step_duration)
+            remaining -= step_duration
+            record_snapshot()
+
+    def process_batch(
+        batch: list[tuple[str, int]],
+        worker_id: str,
+        forklift_id: str | None,
+    ):
+        nonlocal worker_active_time, forklift_active_time, forklift_distance_total
+
+        current_position = io_point
+        batch_units = sum(quantity for _, quantity in batch)
+        for product_id, quantity in batch:
+            shelf_position = shelf_positions[product_id]
+            distance = abs(current_position[0] - shelf_position[0]) + abs(
+                current_position[1] - shelf_position[1]
+            )
+            worker_active_time += distance / effective_worker_speed
+            yield from move_agent(worker_id, shelf_position, effective_worker_speed)
+            yield from perform_picking(
+                worker_id, quantity * effective_pick_time
+            )
+            current_position = shelf_position
+
+        if cargo_size is CargoSize.SMALL:
+            distance = abs(current_position[0] - io_point[0]) + abs(
+                current_position[1] - io_point[1]
+            )
+            worker_active_time += distance / effective_worker_speed
+            yield from move_agent(worker_id, io_point, effective_worker_speed)
+            return
+
+        if forklift_id is None:
+            raise RuntimeError("A forklift must be assigned for this cargo size")
+        set_state(worker_id, "waiting")
+        unloaded_distance = abs(
+            float(agents[forklift_id]["y"]) - current_position[0]
+        ) + abs(float(agents[forklift_id]["x"]) - current_position[1])
+        loaded_distance = abs(current_position[0] - io_point[0]) + abs(
+            current_position[1] - io_point[1]
+        )
+        forklift_distance_total += unloaded_distance + loaded_distance
+        transport_time = (
+            unloaded_distance + loaded_distance
+        ) / effective_forklift_speed
+        loading_time = batch_units * pick_time_per_unit * cargo_weight_kg / 100
+        forklift_active_time += transport_time + loading_time
+        yield from move_agent(
+            forklift_id, current_position, effective_forklift_speed
+        )
+        set_state(forklift_id, "picking")
+        remaining_loading = loading_time
+        while remaining_loading > 0:
+            step_duration = min(float(trace_interval), remaining_loading)
+            yield env.timeout(step_duration)
+            remaining_loading -= step_duration
+            record_snapshot()
+        yield from move_agent(forklift_id, io_point, effective_forklift_speed)
+        set_state(forklift_id, "waiting")
+
+    def process_order(order: PickingOrder):
+        nonlocal next_wait_id
         requested_at = env.now
+        next_wait_id += 1
+        wait_token = next_wait_id
+        pending_waits[wait_token] = ("worker", requested_at)
         with workers.request() as worker_request:
             yield worker_request
+            pending_waits.pop(wait_token)
+            cumulative_wait["worker"] += env.now - requested_at
             worker_waits.append(env.now - requested_at)
+            worker_index = next(
+                index for index, assigned in enumerate(worker_assigned) if not assigned
+            )
+            worker_assigned[worker_index] = True
+            worker_id = f"worker-{worker_index + 1}"
 
-            requested_at = env.now
-            with containers.request() as container_request:
-                yield container_request
-                container_waits.append(env.now - requested_at)
-
-                current_position = io_point
-                for pick in order.picks:
-                    shelf_position = shelf_positions[pick.product_id]
-                    distance = abs(current_position[0] - shelf_position[0]) + abs(
-                        current_position[1] - shelf_position[1]
+            try:
+                chunks = [
+                    (pick.product_id, quantity)
+                    for pick in order.picks
+                    for quantity in (
+                        [max_transport_units]
+                        * (pick.quantity // max_transport_units)
+                        + (
+                            [pick.quantity % max_transport_units]
+                            if pick.quantity % max_transport_units
+                            else []
+                        )
                     )
-                    travel_time = distance / worker_speed
-                    yield env.timeout(travel_time)
-                    worker_active_time += travel_time
+                ]
+                batches: list[list[tuple[str, int]]] = []
+                for product_id, quantity in chunks:
+                    if (
+                        not batches
+                        or sum(units for _, units in batches[-1]) + quantity
+                        > max_transport_units
+                    ):
+                        batches.append([])
+                    batches[-1].append((product_id, quantity))
 
-                    pick_duration = pick.quantity * pick_time_per_unit
-                    yield env.timeout(pick_duration)
-                    worker_active_time += pick_duration
-                    current_position = shelf_position
+                for batch in batches:
+                    forklift_id: str | None = None
+                    if cargo_size is CargoSize.MEDIUM:
+                        requested_at = env.now
+                        set_state(worker_id, "waiting")
+                        next_wait_id += 1
+                        wait_token = next_wait_id
+                        pending_waits[wait_token] = ("container", requested_at)
+                        with containers.request() as container_request:
+                            yield container_request
+                            pending_waits.pop(wait_token)
+                            wait = env.now - requested_at
+                            cumulative_wait["container"] += wait
+                            container_waits.append(wait)
+                            yield from run_batch_with_forklift(batch, worker_id)
+                    elif cargo_size is CargoSize.LARGE:
+                        yield from run_batch_with_forklift(batch, worker_id)
+                    else:
+                        yield from process_batch(batch, worker_id, forklift_id)
 
-                requested_at = env.now
-                with forklifts.request() as forklift_request:
-                    yield forklift_request
-                    forklift_waits.append(env.now - requested_at)
+                completion_times[order.order_id] = float(env.now)
+                record_snapshot()
+            finally:
+                agents[worker_id]["x"] = float(io_point[1])
+                agents[worker_id]["y"] = float(io_point[0])
+                set_state(worker_id, "waiting")
+                worker_assigned[worker_index] = False
 
-                    distance = abs(current_position[0] - io_point[0]) + abs(
-                        current_position[1] - io_point[1]
-                    )
-                    transport_time = distance / forklift_speed
-                    yield env.timeout(transport_time)
-                    forklift_active_time += transport_time
+    def run_batch_with_forklift(
+        batch: list[tuple[str, int]], worker_id: str
+    ):
+        nonlocal next_wait_id, worker_active_time
+        requested_at = env.now
+        set_state(worker_id, "waiting")
+        next_wait_id += 1
+        wait_token = next_wait_id
+        pending_waits[wait_token] = ("forklift", requested_at)
+        with forklifts.request() as forklift_request:
+            yield forklift_request
+            pending_waits.pop(wait_token)
+            wait = env.now - requested_at
+            cumulative_wait["forklift"] += wait
+            forklift_waits.append(wait)
+            forklift_index = next(
+                index
+                for index, assigned in enumerate(forklift_assigned)
+                if not assigned
+            )
+            forklift_assigned[forklift_index] = True
+            forklift_id = f"forklift-{forklift_index + 1}"
+            try:
+                yield from process_batch(batch, worker_id, forklift_id)
+            finally:
+                forklift_assigned[forklift_index] = False
+                set_state(forklift_id, "waiting")
+        worker_position = (
+            int(float(agents[worker_id]["y"])),
+            int(float(agents[worker_id]["x"])),
+        )
+        return_distance = abs(worker_position[0] - io_point[0]) + abs(
+            worker_position[1] - io_point[1]
+        )
+        worker_active_time += return_distance / effective_worker_speed
+        yield from move_agent(worker_id, io_point, effective_worker_speed)
 
-            completion_times[order.order_id] = env.now
-
+    record_snapshot()
     processes = [env.process(process_order(order)) for order in orders]
     if processes:
+        if record_trace:
+            env.process(sample_trace())
         env.run(until=env.all_of(processes))
-    makespan = env.now
+    record_snapshot()
+    makespan = float(env.now)
+    item_count_total = sum(
+        pick.quantity for order in orders for pick in order.picks
+    )
 
     def average(values: list[float]) -> float:
         return sum(values) / len(values) if values else 0.0
 
+    trace_rows = [
+        row
+        for time in sorted(trace_snapshots)
+        for row in trace_snapshots[time]
+    ]
+    trace = pd.DataFrame(
+        trace_rows,
+        columns=[
+            "time",
+            "agent_id",
+            "agent_type",
+            "x",
+            "y",
+            "state",
+            "wait_time_total",
+            "queue_count",
+            "completed_order_count",
+        ],
+    )
     return SimulationResult(
         makespan=makespan,
         worker_utilization=(
             worker_active_time / (makespan * worker_count) if makespan else 0.0
         ),
         forklift_utilization=(
-            forklift_active_time / (makespan * forklift_count) if makespan else 0.0
+            forklift_active_time / (makespan * forklift_count)
+            if makespan and forklift_count
+            else 0.0
         ),
         worker_wait_time_total=sum(worker_waits),
         worker_wait_time_average=average(worker_waits),
@@ -178,5 +499,9 @@ def simulate_picking(
         forklift_wait_time_average=average(forklift_waits),
         container_wait_time_total=sum(container_waits),
         container_wait_time_average=average(container_waits),
+        forklift_active_time_total=forklift_active_time,
+        forklift_distance_total=forklift_distance_total,
+        item_count_total=item_count_total,
         order_completion_times=completion_times,
+        trace=trace,
     )

@@ -43,7 +43,7 @@ SimPy による離散事象シミュレーションを行うためのプロジ�
 import pandas as pd
 
 from warehouse_sim.layout.grid import WarehouseGrid
-from warehouse_sim.visualization import plot_warehouse_grid
+from warehouse_sim.visualization import plot_warehouse_3d, plot_warehouse_grid
 
 warehouse = WarehouseGrid(width=50, height=50, aisle_spacing=8)
 products = pd.DataFrame(
@@ -56,12 +56,19 @@ slotting = warehouse.optimize_slotting(products)
 print(slotting[["product_id", "abc_class", "row", "column"]])
 
 figure = plot_warehouse_grid(warehouse.grid, slotting)
+figure_3d = plot_warehouse_3d(warehouse.grid, slotting)
 ```
 
 I/Oポイントは `(row, column)` のリストで指定でき、省略時は下辺の中央に1点
 配置されます。`warehouse.grid` は `.`（床）、`A`（通路）、`I`（出入口）、
 `S`（棚）を表すNumPy配列です。`plot_warehouse_grid` はセル種別ごとの凡例を
 表示し、棚割りDataFrameを渡すと棚をABC区分ごとに色分けします。
+`plot_warehouse_3d` はPlotlyで棚を高さのある直方体として描画し、I/Oポイント、
+通路、ABC別の棚を3D表示します。`worker_paths` と `forklift_paths` を渡すと
+それぞれの軌跡も表示できます。Streamlitアプリでは2D/3Dタブを切り替えられ、
+3D図は暗色グリッド床、通路帯、複数段の棚板とスチールフレームからなるラック、
+ABC区分別の棚板、立体的なI/Oドックを表示します。ドラッグで回転、スクロールで
+ズームできます。
 
 ## ピッキングシミュレーション
 
@@ -100,6 +107,26 @@ print(f"Forklift wait: {result.forklift_wait_time_total:.2f}")
 作業者はI/Oポイントから出発します。作業者・フォークリフトの稼働率は
 ピッキング/移動または運搬の実作業時間を、メイクスパン中の全リソース時間で
 割った値です。各リソースの待ち時間は合計と1要求あたり平均を返します。
+アプリでは荷物重量、サイズ区分、1回あたりの搬送上限を指定できます。重量と
+サイズに応じて作業速度・ピッキング時間・積載時間を調整し、搬送上限を超える
+数量は複数バッチに分けます。小型荷物は作業員が手持ちで戻し、中型はコンテナと
+フォークリフト、大型はフォークリフトを使用します。
+
+シミュレーション結果には、時間ごとのエージェント位置・状態を記録した
+`result.trace`（pandas DataFrame）が含まれます。列は `time`, `agent_id`,
+`agent_type`, `x`, `y`, `state`, `wait_time_total`,
+`queue_count`, `completed_order_count` です。Streamlit上ではPlotlyの再生・一時停止・
+時刻スライダーでアニメーションを操作でき、稼働作業員数・累積待ち時間・待ち要求数・
+完了オーダー数をフレームと同期して確認できます。暗色床、立体棚、I/Oドックの3D空間
+で再生でき、再生速度（0.5x～5.0x）、記録間隔、FPS、表示フレーム数を調整して
+滑らかさと描画負荷のバランスを変更できます。
+
+`optimize_conditions` は同じ注文データで作業員数、フォークリフト数、
+棚配置ルール（ABC優先/頻度優先）を比較します。時間優先、予算内コスト最小化、
+最低稼働率を考慮した費用対効果、フォークリフトの走行距離・稼働時間に基づく
+CO2換算推定値の4目的を選べます。候補KPIと現在条件との比較表、推奨理由を表示し、
+推奨条件をアプリの入力欄へ適用できます。費用とCO2換算値は明示された係数を用いる
+モデル推定値であり、実測値や実費用ではありません。
 
 ## セットアップ
 

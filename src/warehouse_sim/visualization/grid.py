@@ -13,6 +13,7 @@ from matplotlib.patches import Patch
 def plot_warehouse_grid(
     grid: np.ndarray,
     slotting: pd.DataFrame | None = None,
+    agent_positions: pd.DataFrame | None = None,
 ) -> Figure:
     """Draw a warehouse grid with a legend for floor, aisles, I/O, and shelves.
 
@@ -95,5 +96,26 @@ def plot_warehouse_grid(
         for index in legend_indexes
     ]
     axis.legend(handles=handles, loc="upper right", ncols=2, fontsize="small")
+    if agent_positions is not None and not agent_positions.empty:
+        marker_styles = {
+            "worker": {"color": "#16a34a", "marker": "o", "label": "Worker"},
+            "forklift": {"color": "#f59e0b", "marker": "s", "label": "Forklift"},
+        }
+        for agent_type, style in marker_styles.items():
+            positions = agent_positions[agent_positions["agent_type"] == agent_type]
+            if positions.empty:
+                continue
+            axis.scatter(
+                positions["x"],
+                positions["y"],
+                c=style["color"],
+                marker=style["marker"],
+                edgecolors="black",
+                linewidths=0.5,
+                s=55,
+                label=style["label"],
+                zorder=5,
+            )
+        axis.legend(loc="upper right", ncols=2, fontsize="small")
     figure.tight_layout()
     return figure

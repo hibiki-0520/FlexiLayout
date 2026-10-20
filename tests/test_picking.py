@@ -1,6 +1,6 @@
 import unittest
 
-from warehouse_sim.simulation import PickTask, PickingOrder, simulate_picking
+from warehouse_sim.simulation import CargoSize, PickTask, PickingOrder, simulate_picking
 
 
 class PickingSimulationTests(unittest.TestCase):
@@ -17,12 +17,24 @@ class PickingSimulationTests(unittest.TestCase):
             pick_time_per_unit=1,
         )
 
-        self.assertEqual(result.makespan, 6)
-        self.assertAlmostEqual(result.worker_utilization, 4 / 6)
-        self.assertAlmostEqual(result.forklift_utilization, 2 / 6)
-        self.assertEqual(result.order_completion_times, {"order-1": 6})
+        self.assertEqual(result.makespan, 10)
+        self.assertAlmostEqual(result.worker_utilization, 6 / 10)
+        self.assertAlmostEqual(result.forklift_utilization, 4 / 10)
+        self.assertEqual(result.order_completion_times, {"order-1": 10})
+        self.assertEqual(result.forklift_distance_total, 4)
+        self.assertEqual(result.item_count_total, 2)
         self.assertEqual(result.worker_wait_time_total, 0)
         self.assertEqual(result.forklift_wait_time_total, 0)
+        self.assertEqual(result.trace["agent_id"].nunique(), 2)
+        self.assertTrue(
+            result.trace.groupby("time")["agent_id"].nunique().eq(2).all()
+        )
+        final_worker = result.trace[
+            (result.trace["agent_id"] == "worker-1")
+            & (result.trace["time"] == result.makespan)
+        ].iloc[-1]
+        self.assertEqual((final_worker["x"], final_worker["y"]), (0, 0))
+        self.assertEqual(final_worker["completed_order_count"], 1)
 
     def test_reports_wait_for_single_forklift(self) -> None:
         orders = [
@@ -68,6 +80,91 @@ class PickingSimulationTests(unittest.TestCase):
                 forklift_count=1,
                 container_count=1,
             )
+
+    def test_heavier_cargo_increases_makespan(self) -> None:
+        order = [PickingOrder("order", [PickTask("sku", quantity=2)])]
+        common = {
+            "orders": order,
+            "shelf_positions": {"sku": (0, 2)},
+            "io_point": (0, 0),
+            "worker_count": 1,
+            "forklift_count": 1,
+            "container_count": 1,
+            "cargo_size_class": CargoSize.MEDIUM,
+            "max_transport_units": 5,
+            "worker_speed": 1,
+            "forklift_speed": 1,
+            "pick_time_per_unit": 1,
+        }
+
+        light = simulate_picking(**common, cargo_weight_kg=1)
+        heavy = simulate_picking(**common, cargo_weight_kg=50)
+
+        self.assertGreater(heavy.makespan, light.makespan)
+        self.assertGreater(heavy.forklift_utilization, 0)
+
+    def test_small_cargo_can_be_hand_carried_without_forklift(self) -> None:
+        result = simulate_picking(
+            [PickingOrder("order", [PickTask("sku", quantity=2)])],
+            shelf_positions={"sku": (0, 2)},
+            io_point=(0, 0),
+            worker_count=1,
+            forklift_count=0,
+            container_count=1,
+            cargo_size_class=CargoSize.SMALL,
+            max_transport_units=1,
+        )
+
+        self.assertGreater(result.makespan, 0)
+        self.assertEqual(result.forklift_utilization, 0)
+
+    def test_large_cargo_requires_forklift_and_batches_by_capacity(self) -> None:
+        order = [PickingOrder("order", [PickTask("sku", quantity=3)])]
+        common = {
+            "orders": order,
+            "shelf_positions": {"sku": (0, 1)},
+            "io_point": (0, 0),
+            "worker_count": 1,
+            "container_count": 1,
+            "cargo_size_class": CargoSize.LARGE,
+            "max_transport_units": 1,
+        }
+        with self.assertRaisesRegex(ValueError, "requires at least one forklift"):
+            simulate_picking(**common, forklift_count=0)
+
+        batched_result = simulate_picking(**common, forklift_count=1)
+        full_load_result = simulate_picking(
+            **{**common, "max_transport_units": 3},
+            forklift_count=1,
+        )
+        self.assertEqual(batched_result.forklift_wait_time_total, 0)
+        self.assertGreater(batched_result.forklift_utilization, 0)
+        self.assertGreater(batched_result.makespan, full_load_result.makespan)
+
+    def test_trace_records_intermediate_positions_and_waiting_time(self) -> None:
+        result = simulate_picking(
+            [
+                PickingOrder("first", [PickTask("sku")]),
+                PickingOrder("second", [PickTask("sku")]),
+            ],
+            shelf_positions={"sku": (0, 2)},
+            io_point=(0, 0),
+            worker_count=1,
+            forklift_count=0,
+            container_count=1,
+            cargo_size_class=CargoSize.SMALL,
+            trace_interval=0.5,
+        )
+
+        worker_trace = result.trace[result.trace["agent_type"] == "worker"]
+        self.assertTrue({"moving", "picking", "waiting"}.intersection(worker_trace["state"]))
+        self.assertTrue(worker_trace["x"].between(0, 2).all())
+        self.assertGreater(worker_trace["wait_time_total"].max(), 0)
+        self.assertGreater(worker_trace["queue_count"].max(), 0)
+        self.assertEqual(
+            int(worker_trace["completed_order_count"].max()),
+            len(result.order_completion_times),
+        )
 
 
 if __name__ == "__main__":

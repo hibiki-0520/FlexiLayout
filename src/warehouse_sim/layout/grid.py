@@ -119,14 +119,19 @@ class WarehouseGrid:
         item_col: str = "product_id",
         frequency_col: str = "pick_frequency",
         abc_col: str | None = None,
+        placement_rule: str = "abc",
     ) -> pd.DataFrame:
         """Assign products to shelf cells, prioritizing ABC class and I/O distance.
 
         If ``abc_col`` is omitted, an existing ``abc_class`` column is used when
         available; otherwise classes are derived from cumulative pick frequency.
+        ``placement_rule="frequency"`` assigns the most frequently picked items
+        to the closest shelf cells, regardless of ABC class.
         The returned DataFrame includes ``abc_class``, ``row``, ``column``, and
         ``distance_from_io`` columns.
         """
+        if placement_rule not in {"abc", "frequency"}:
+            raise ValueError("placement_rule must be 'abc' or 'frequency'")
         required_columns = {item_col, frequency_col}
         missing_columns = required_columns.difference(products.columns)
         if missing_columns:
@@ -165,9 +170,14 @@ class WarehouseGrid:
         ordered["abc_class"] = classes
         ordered["_abc_rank"] = abc_rank
         ordered["_frequency"] = frequencies
+        sort_columns = (
+            ["_abc_rank", "_frequency"]
+            if placement_rule == "abc"
+            else ["_frequency"]
+        )
         ordered = ordered.sort_values(
-            ["_abc_rank", "_frequency"],
-            ascending=[True, False],
+            sort_columns,
+            ascending=[True, False] if placement_rule == "abc" else [False],
             kind="stable",
         ).drop(columns=["_abc_rank", "_frequency"])
 
