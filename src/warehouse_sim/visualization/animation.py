@@ -408,6 +408,8 @@ def plot_warehouse_animation_3d(
     fps: int = 20,
     max_frames: int = 120,
     speed_multiplier: float = 1.0,
+    camera_view: str = "top",
+    trail_samples: int = 8,
 ) -> go.Figure:
     """Create a 3D warehouse animation with browser-side playback controls."""
     if not isinstance(speed_multiplier, (int, float)) or speed_multiplier not in {
@@ -427,6 +429,19 @@ def plot_warehouse_animation_3d(
         or not 2 <= max_frames <= 500
     ):
         raise ValueError("max_frames must be an integer between 2 and 500")
+    camera_eyes = {
+        "perspective": (1.5, 1.5, 1.2),
+        "top": (0.0, 0.0, 2.5),
+        "side": (0.0, -2.5, 0.5),
+    }
+    if camera_view not in camera_eyes:
+        raise ValueError("camera_view must be perspective, top, or side")
+    if (
+        not isinstance(trail_samples, int)
+        or isinstance(trail_samples, bool)
+        or not 1 <= trail_samples <= 50
+    ):
+        raise ValueError("trail_samples must be an integer between 1 and 50")
     missing_columns = _TRACE_COLUMNS.difference(trace.columns)
     if missing_columns:
         raise ValueError(
@@ -456,6 +471,16 @@ def plot_warehouse_animation_3d(
         str(agent_id): history.sort_values("time").reset_index(drop=True)
         for agent_id, history in trace.groupby("agent_id", sort=False)
     }
+    trail_histories = {
+        agent_id: (
+            str(history["agent_type"].iloc[0]),
+            history["time"].to_numpy(dtype=float),
+            history["x"].to_numpy(dtype=float),
+            history["y"].to_numpy(dtype=float),
+            history["state"].to_numpy(dtype=str),
+        )
+        for agent_id, history in histories.items()
+    }
     kpi_history = (
         trace.groupby("time", as_index=False)[
             ["wait_time_total", "queue_count", "completed_order_count"]
@@ -477,6 +502,32 @@ def plot_warehouse_animation_3d(
         kpi_completions,
         float(frame_times[0]),
     )
+    trail_trace_indices: list[int] = []
+    for agent_type, name, color in (
+        ("worker", "作業員の軌跡", "#168bff"),
+        ("forklift", "フォークリフトの軌跡", "#ff9c2a"),
+    ):
+        trail_x, trail_y, trail_z = _trail_coordinates(
+            trail_histories,
+            agent_type,
+            float(frame_times[0]),
+            trail_samples,
+            grid.shape[0],
+        )
+        figure.add_trace(
+            go.Scatter3d(
+                x=trail_x,
+                y=trail_y,
+                z=trail_z,
+                mode="lines",
+                line={"color": color, "width": 4},
+                opacity=0.35,
+                name=name,
+                hoverinfo="skip",
+            )
+        )
+        trail_trace_indices.append(len(figure.data) - 1)
+
     agent_trace_indices: list[int] = []
     for agent_type, name, color, symbol in (
         ("worker", "作業員", "#168bff", "circle"),
@@ -507,6 +558,7 @@ def plot_warehouse_animation_3d(
         )
         agent_trace_indices.append(len(figure.data) - 1)
 
+    animation_trace_indices = trail_trace_indices + agent_trace_indices
     frames: list[go.Frame] = []
     for frame_index, frame_time in enumerate(frame_times):
         snapshot = (
@@ -523,6 +575,17 @@ def plot_warehouse_animation_3d(
         )
         updates = []
         for agent_type in ("worker", "forklift"):
+            trail_x, trail_y, trail_z = _trail_coordinates(
+                trail_histories,
+                agent_type,
+                float(frame_time),
+                trail_samples,
+                grid.shape[0],
+            )
+            updates.append(
+                go.Scatter3d(x=trail_x, y=trail_y, z=trail_z)
+            )
+        for agent_type in ("worker", "forklift"):
             agents = snapshot[snapshot["agent_type"] == agent_type]
             updates.append(
                 go.Scatter3d(
@@ -537,7 +600,7 @@ def plot_warehouse_animation_3d(
             go.Frame(
                 name=f"frame-{frame_index}",
                 data=updates,
-                traces=agent_trace_indices,
+                traces=animation_trace_indices,
                 layout=go.Layout(
                     annotations=_kpi_annotations(snapshot, float(frame_time))
                 ),
@@ -550,14 +613,20 @@ def plot_warehouse_animation_3d(
         round(500 / (fps * float(speed_multiplier))),
     )
     figure.frames = frames
+    camera_eye = camera_eyes[camera_view]
+    camera_up = (
+        {"x": 0.0, "y": 1.0, "z": 0.0}
+        if camera_view == "top"
+        else {"x": 0.0, "y": 0.0, "z": 1.0}
+    )
     figure.update_layout(
         title="倉庫内エージェント 3D アニメーション",
         height=760,
         margin={"l": 0, "r": 0, "t": 130, "b": 85},
         annotations=_kpi_annotations(initial_snapshot, float(frame_times[0])),
         scene_camera={
-            "eye": {"x": 0.0, "y": 0.0, "z": 2.5},
-            "up": {"x": 0.0, "y": 1.0, "z": 0.0},
+            "eye": {"x": camera_eye[0], "y": camera_eye[1], "z": camera_eye[2]},
+            "up": camera_up,
         },
         updatemenus=[
             {
@@ -575,7 +644,7 @@ def plot_warehouse_animation_3d(
                             {
                                 "fromcurrent": True,
                                 "mode": "immediate",
-                                "frame": {"duration": duration, "redraw": True},
+                                "frame": {"duration": duration, "redraw": False},
                                 "transition": {
                                     "duration": transition_duration,
                                     "easing": "linear",
@@ -590,7 +659,7 @@ def plot_warehouse_animation_3d(
                             [None],
                             {
                                 "mode": "immediate",
-                                "frame": {"duration": 0, "redraw": True},
+                                "frame": {"duration": 0, "redraw": False},
                                 "transition": {"duration": 0},
                             },
                         ],
@@ -613,7 +682,7 @@ def plot_warehouse_animation_3d(
                             [f"frame-{index}"],
                             {
                                 "mode": "immediate",
-                                "frame": {"duration": 0, "redraw": True},
+                                "frame": {"duration": 0, "redraw": False},
                                 "transition": {"duration": 0},
                             },
                         ],
@@ -624,3 +693,47 @@ def plot_warehouse_animation_3d(
         ],
     )
     return figure
+
+
+def _trail_coordinates(
+    histories: dict[
+        str,
+        tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    ],
+    agent_type: str,
+    time: float,
+    sample_limit: int,
+    grid_height: int,
+) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    trail_x: list[float | None] = []
+    trail_y: list[float | None] = []
+    trail_z: list[float | None] = []
+    for history_type, times, xs, ys, states in histories.values():
+        if history_type != agent_type:
+            continue
+        end_index = int(np.searchsorted(times, time, side="right"))
+        if end_index == 0:
+            continue
+        start_index = max(0, end_index - sample_limit)
+        for x, y in zip(xs[start_index:end_index], ys[start_index:end_index]):
+            trail_x.append(float(x))
+            trail_y.append(float(grid_height - 1 - y))
+            trail_z.append(0.16)
+        if end_index < len(times) and states[end_index - 1] == "moving":
+            current_time = float(times[end_index - 1])
+            next_time = float(times[end_index])
+            if next_time > current_time:
+                fraction = min(max((time - current_time) / (next_time - current_time), 0), 1)
+                current_x = xs[end_index - 1] + (
+                    xs[end_index] - xs[end_index - 1]
+                ) * fraction
+                current_y = ys[end_index - 1] + (
+                    ys[end_index] - ys[end_index - 1]
+                ) * fraction
+                trail_x.append(float(current_x))
+                trail_y.append(float(grid_height - 1 - current_y))
+                trail_z.append(0.16)
+        trail_x.append(None)
+        trail_y.append(None)
+        trail_z.append(None)
+    return trail_x, trail_y, trail_z

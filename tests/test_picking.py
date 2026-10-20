@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 from warehouse_sim.simulation import CargoSize, PickTask, PickingOrder, simulate_picking
 
 
@@ -165,6 +167,66 @@ class PickingSimulationTests(unittest.TestCase):
             int(worker_trace["completed_order_count"].max()),
             len(result.order_completion_times),
         )
+
+    def test_routes_around_shelves_using_aisle_grid(self) -> None:
+        grid = np.array(
+            [
+                [".", ".", "."],
+                ["I", "S", "S"],
+                [".", ".", "."],
+            ]
+        )
+        result = simulate_picking(
+            [PickingOrder("order", [PickTask("sku")])],
+            shelf_positions={"sku": (1, 2)},
+            io_point=(1, 0),
+            worker_count=1,
+            forklift_count=0,
+            container_count=1,
+            cargo_size_class=CargoSize.SMALL,
+            trace_interval=0.25,
+            warehouse_grid=grid,
+        )
+
+        worker_trace = result.trace[result.trace["agent_type"] == "worker"]
+        self.assertFalse(
+            ((worker_trace["x"] == 1) & (worker_trace["y"] == 1)).any()
+        )
+        self.assertEqual(result.makespan, 9)
+        self.assertTrue(
+            (
+                (worker_trace["x"] == 0)
+                | (worker_trace["x"] == 2)
+                | (worker_trace["y"] != 1)
+            ).all()
+        )
+        movement = worker_trace[worker_trace["state"] == "moving"]
+        self.assertTrue(
+            (
+                movement["x"].diff().fillna(0).abs()
+                + movement["y"].diff().fillna(0).abs()
+            ).le(0.25).all()
+        )
+
+    def test_reports_shelf_without_aisle_route(self) -> None:
+        grid = np.array(
+            [
+                ["I", "S", "S"],
+                ["S", "S", "S"],
+                ["S", "S", "S"],
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "No aisle route"):
+            simulate_picking(
+                [PickingOrder("order", [PickTask("sku")])],
+                shelf_positions={"sku": (2, 2)},
+                io_point=(0, 0),
+                worker_count=1,
+                forklift_count=0,
+                container_count=1,
+                cargo_size_class=CargoSize.SMALL,
+                warehouse_grid=grid,
+            )
 
 
 if __name__ == "__main__":

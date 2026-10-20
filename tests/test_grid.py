@@ -44,6 +44,34 @@ class WarehouseGridTests(unittest.TestCase):
 
         self.assertEqual(assigned["product_id"].tolist(), ["class-a", "class-c"])
 
+    def test_shelves_are_aisle_accessible_at_maximum_app_sku_count(self) -> None:
+        warehouse = WarehouseGrid(width=50, height=50, aisle_spacing=5)
+        products = pd.DataFrame(
+            {
+                "product_id": [f"sku-{index}" for index in range(1000)],
+                "pick_frequency": list(range(1000, 0, -1)),
+            }
+        )
+
+        assigned = warehouse.optimize_slotting(products)
+
+        self.assertEqual(len(assigned), 1000)
+        for row, column in zip(assigned["row"], assigned["column"]):
+            self.assertTrue(
+                any(
+                    0 <= row + row_delta < warehouse.height
+                    and 0 <= column + column_delta < warehouse.width
+                    and warehouse.grid[row + row_delta, column + column_delta]
+                    in {"A", "I"}
+                    for row_delta, column_delta in (
+                        (-1, 0),
+                        (0, -1),
+                        (0, 1),
+                        (1, 0),
+                    )
+                )
+            )
+
     def test_rejects_invalid_io_and_frequency(self) -> None:
         with self.assertRaises(ValueError):
             WarehouseGrid(width=10, height=10, io_points=[(5, 5)])

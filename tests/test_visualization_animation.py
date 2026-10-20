@@ -107,11 +107,40 @@ class WarehouseAnimationTests(unittest.TestCase):
         self.assertEqual(figure.data[-2].marker.color, "#168bff")
         self.assertEqual(figure.data[-1].marker.size, 13)
         self.assertEqual(figure.data[-1].marker.color, "#ff9c2a")
+        self.assertEqual(figure.data[-4].mode, "lines")
+        self.assertEqual(figure.data[-3].mode, "lines")
+        self.assertTrue(figure.data[-4].opacity < 1)
+        self.assertFalse(figure.layout.updatemenus[0].buttons[0].args[1]["frame"]["redraw"])
         middle_frame = figure.frames[1]
-        self.assertEqual(list(middle_frame.data[0].x), [1.0])
-        self.assertEqual(list(middle_frame.data[0].y), [1.0])
-        self.assertEqual(list(middle_frame.data[0].z), [0.5])
+        self.assertEqual(len(middle_frame.data), 4)
+        self.assertEqual(list(middle_frame.data[2].x), [1.0])
+        self.assertEqual(list(middle_frame.data[2].y), [1.0])
+        self.assertEqual(list(middle_frame.data[2].z), [0.5])
         self.assertEqual(len(middle_frame.layout.annotations), 4)
+
+    def test_supports_camera_presets(self) -> None:
+        grid = np.array([["I", ".", "S"], ["A", "A", "."]])
+        for preset, expected_eye in (
+            ("perspective", (1.5, 1.5, 1.2)),
+            ("top", (0.0, 0.0, 2.5)),
+            ("side", (0.0, -2.5, 0.5)),
+        ):
+            with self.subTest(preset=preset):
+                figure = plot_warehouse_animation_3d(
+                    grid,
+                    sample_trace(),
+                    camera_view=preset,
+                )
+                eye = figure.layout.scene.camera.eye
+                self.assertEqual((eye.x, eye.y, eye.z), expected_eye)
+
+    def test_rejects_unknown_camera_preset(self) -> None:
+        with self.assertRaisesRegex(ValueError, "camera_view"):
+            plot_warehouse_animation_3d(
+                np.array([["I"]]),
+                sample_trace(),
+                camera_view="unknown",
+            )
 
     def test_3d_animation_rejects_unsupported_speed(self) -> None:
         with self.assertRaisesRegex(ValueError, "speed_multiplier"):

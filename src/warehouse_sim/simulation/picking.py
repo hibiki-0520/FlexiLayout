@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections import OrderedDict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
+from functools import lru_cache
+from heapq import heappop, heappush
 
+import numpy as np
 import pandas as pd
 import simpy
 
 Coordinate = tuple[int, int]
+RouteFunction = Callable[[Coordinate, Coordinate], tuple[Coordinate, ...]]
+_GRID_ROUTE_CACHES: OrderedDict[
+    tuple[tuple[int, int], bytes],
+    RouteFunction,
+] = OrderedDict()
 
 
 class CargoSize(str, Enum):
@@ -65,6 +75,108 @@ def _validate_coordinate(name: str, coordinate: Coordinate) -> None:
         raise ValueError(f"{name} must be a pair of non-negative integers")
 
 
+def _route_path(
+    origin: Coordinate,
+    destination: Coordinate,
+    warehouse_grid: np.ndarray | None,
+) -> list[Coordinate]:
+    if warehouse_grid is None:
+        row, column = origin
+        path = [origin]
+        row_step = 1 if destination[0] >= row else -1
+        while row != destination[0]:
+            row += row_step
+            path.append((row, column))
+        column_step = 1 if destination[1] >= column else -1
+        while column != destination[1]:
+            column += column_step
+            path.append((row, column))
+        return path
+
+    return list(_grid_route_function(warehouse_grid)(origin, destination))
+
+
+def _astar_route(
+    origin: Coordinate,
+    destination: Coordinate,
+    warehouse_grid: np.ndarray,
+) -> tuple[Coordinate, ...]:
+    rows, columns = warehouse_grid.shape
+    for point in (origin, destination):
+        if not (0 <= point[0] < rows and 0 <= point[1] < columns):
+            raise ValueError(f"Route coordinate {point} is outside warehouse_grid")
+
+    frontier: list[tuple[int, int, Coordinate]] = []
+    heappush(
+        frontier,
+        (
+            abs(origin[0] - destination[0]) + abs(origin[1] - destination[1]),
+            0,
+            origin,
+        ),
+    )
+    came_from: dict[Coordinate, Coordinate | None] = {origin: None}
+    cost_so_far = {origin: 0}
+    neighbors = ((-1, 0), (0, -1), (0, 1), (1, 0))
+
+    while frontier:
+        _, current_cost, current = heappop(frontier)
+        if current == destination:
+            path = [current]
+            while came_from[path[-1]] is not None:
+                previous = came_from[path[-1]]
+                if previous is None:
+                    break
+                path.append(previous)
+            path.reverse()
+            return tuple(path)
+        if current_cost != cost_so_far[current]:
+            continue
+
+        for row_delta, column_delta in neighbors:
+            neighbor = (current[0] + row_delta, current[1] + column_delta)
+            if not (0 <= neighbor[0] < rows and 0 <= neighbor[1] < columns):
+                continue
+            if neighbor != destination and warehouse_grid[neighbor] == "S":
+                continue
+            next_cost = current_cost + 1
+            if next_cost >= cost_so_far.get(neighbor, float("inf")):
+                continue
+            cost_so_far[neighbor] = next_cost
+            came_from[neighbor] = current
+            heuristic = abs(neighbor[0] - destination[0]) + abs(
+                neighbor[1] - destination[1]
+            )
+            heappush(frontier, (next_cost + heuristic, next_cost, neighbor))
+
+    raise ValueError(f"No aisle route found from {origin} to {destination}")
+
+
+def _grid_route_function(warehouse_grid: np.ndarray) -> RouteFunction:
+    normalized_grid = warehouse_grid.astype("<U1", copy=False)
+    grid_data = normalized_grid.tobytes()
+    cache_key = (
+        normalized_grid.shape,
+        hashlib.blake2b(grid_data, digest_size=16).digest(),
+    )
+    route_function = _GRID_ROUTE_CACHES.get(cache_key)
+    if route_function is not None:
+        _GRID_ROUTE_CACHES.move_to_end(cache_key)
+        return route_function
+
+    route_function = lru_cache(maxsize=8192)(
+        lambda origin, destination: _astar_route(
+            origin,
+            destination,
+            normalized_grid,
+        )
+    )
+    _GRID_ROUTE_CACHES[cache_key] = route_function
+    if len(_GRID_ROUTE_CACHES) > 4:
+        _GRID_ROUTE_CACHES.popitem(last=False)
+    return route_function
+
+
 def simulate_picking(
     orders: Sequence[PickingOrder],
     shelf_positions: Mapping[str, Coordinate],
@@ -81,14 +193,15 @@ def simulate_picking(
     max_transport_units: int = 5,
     trace_interval: float = 1.0,
     record_trace: bool = True,
+    warehouse_grid: np.ndarray | None = None,
 ) -> SimulationResult:
     """Simulate orders and optionally record agent positions at each time step.
 
-    Trace coordinates use ``x=column`` and ``y=row``. Agent states are
-    ``moving``, ``picking``, or ``waiting``. Simulated travel is interpolated
-    and sampled at ``trace_interval`` time-unit intervals. The trace also
-    includes cumulative wait time and completed order count for dashboard
-    playback.
+    Trace coordinates use ``x=column`` and ``y=row``. If ``warehouse_grid``
+    is provided, agents follow an A* route through floor, aisle, and I/O cells;
+    shelf cells are only entered when they are the route destination. Agent
+    states are ``moving``, ``picking``, or ``waiting``. Movement is sampled
+    and interpolated along each grid edge at ``trace_interval`` intervals.
     """
     if worker_count <= 0 or container_count <= 0:
         raise ValueError("worker and container counts must be positive")
@@ -128,10 +241,44 @@ def simulate_picking(
         raise ValueError(f"{cargo_size.value} requires at least one forklift")
 
     _validate_coordinate("io_point", io_point)
+    if warehouse_grid is not None:
+        if (
+            not isinstance(warehouse_grid, np.ndarray)
+            or warehouse_grid.ndim != 2
+            or warehouse_grid.size == 0
+        ):
+            raise ValueError("warehouse_grid must be a non-empty 2D NumPy array")
+        unknown_cells = set(np.unique(warehouse_grid)).difference(
+            {".", "A", "I", "S"}
+        )
+        if unknown_cells:
+            raise ValueError(
+                f"warehouse_grid contains unknown cells: {sorted(unknown_cells)}"
+            )
+        for name, point in (("io_point", io_point), *shelf_positions.items()):
+            if not (
+                0 <= point[0] < warehouse_grid.shape[0]
+                and 0 <= point[1] < warehouse_grid.shape[1]
+            ):
+                raise ValueError(f"{name} coordinate {point} is outside warehouse_grid")
+        if warehouse_grid[io_point] != "I":
+            raise ValueError("io_point must refer to an I cell in warehouse_grid")
+        for product_id, point in shelf_positions.items():
+            if warehouse_grid[point] != "S":
+                raise ValueError(
+                    f"shelf_positions[{product_id!r}] must refer to an S cell"
+                )
     for product_id, position in shelf_positions.items():
         if not product_id:
             raise ValueError("Product IDs in shelf_positions must not be empty")
         _validate_coordinate(f"shelf_positions[{product_id!r}]", position)
+    route_function: RouteFunction = (
+        _grid_route_function(warehouse_grid)
+        if warehouse_grid is not None
+        else lambda origin, destination: tuple(
+            _route_path(origin, destination, None)
+        )
+    )
 
     order_ids = [order.order_id for order in orders]
     if any(not order_id for order_id in order_ids) or len(set(order_ids)) != len(
@@ -241,39 +388,31 @@ def simulate_picking(
 
     def move_agent(agent_id: str, destination: Coordinate, speed: float):
         agent = agents[agent_id]
-        start_row, start_column = float(agent["y"]), float(agent["x"])
-        end_row, end_column = destination
-        distance = abs(end_row - start_row) + abs(end_column - start_column)
-        if distance == 0:
-            agent["x"] = float(end_column)
-            agent["y"] = float(end_row)
+        origin = (int(round(float(agent["y"]))), int(round(float(agent["x"]))))
+        route = route_function(origin, destination)
+        route_destination = route[-1]
+        if len(route) == 1:
+            agent["x"] = float(route_destination[1])
+            agent["y"] = float(route_destination[0])
             record_snapshot()
-            return
+            return route_destination
 
-        duration = distance / speed
-        elapsed = 0.0
         set_state(agent_id, "moving")
-        while elapsed < duration:
-            step_duration = min(float(trace_interval), duration - elapsed)
-            yield env.timeout(step_duration)
-            elapsed += step_duration
-            progress = min(elapsed / duration, 1.0)
-            travelled = distance * progress
-            row_delta = end_row - start_row
-            column_delta = end_column - start_column
-            row_distance = min(abs(row_delta), travelled)
-            remaining_distance = max(travelled - abs(row_delta), 0.0)
-            agent["y"] = start_row + (
-                (1 if row_delta >= 0 else -1) * row_distance
-            )
-            agent["x"] = start_column + (
-                (1 if column_delta >= 0 else -1)
-                * min(abs(column_delta), remaining_distance)
-            )
-            record_snapshot()
-        agent["x"] = float(end_column)
-        agent["y"] = float(end_row)
+        for start, end in zip(route, route[1:]):
+            duration = 1.0 / speed
+            elapsed = 0.0
+            while elapsed < duration:
+                step_duration = min(float(trace_interval), duration - elapsed)
+                yield env.timeout(step_duration)
+                elapsed += step_duration
+                progress = min(elapsed / duration, 1.0)
+                agent["y"] = start[0] + (end[0] - start[0]) * progress
+                agent["x"] = start[1] + (end[1] - start[1]) * progress
+                record_snapshot()
+        agent["x"] = float(route_destination[1])
+        agent["y"] = float(route_destination[0])
         record_snapshot()
+        return route_destination
 
     def perform_picking(agent_id: str, duration: float):
         nonlocal worker_active_time
@@ -293,24 +432,26 @@ def simulate_picking(
     ):
         nonlocal worker_active_time, forklift_active_time, forklift_distance_total
 
-        current_position = io_point
+        current_position = (
+            int(round(float(agents[worker_id]["y"]))),
+            int(round(float(agents[worker_id]["x"]))),
+        )
         batch_units = sum(quantity for _, quantity in batch)
         for product_id, quantity in batch:
             shelf_position = shelf_positions[product_id]
-            distance = abs(current_position[0] - shelf_position[0]) + abs(
-                current_position[1] - shelf_position[1]
-            )
+            distance = len(route_function(current_position, shelf_position)) - 1
             worker_active_time += distance / effective_worker_speed
-            yield from move_agent(worker_id, shelf_position, effective_worker_speed)
+            current_position = yield from move_agent(
+                worker_id,
+                shelf_position,
+                effective_worker_speed,
+            )
             yield from perform_picking(
                 worker_id, quantity * effective_pick_time
             )
-            current_position = shelf_position
 
         if cargo_size is CargoSize.SMALL:
-            distance = abs(current_position[0] - io_point[0]) + abs(
-                current_position[1] - io_point[1]
-            )
+            distance = len(route_function(current_position, io_point)) - 1
             worker_active_time += distance / effective_worker_speed
             yield from move_agent(worker_id, io_point, effective_worker_speed)
             return
@@ -318,12 +459,14 @@ def simulate_picking(
         if forklift_id is None:
             raise RuntimeError("A forklift must be assigned for this cargo size")
         set_state(worker_id, "waiting")
-        unloaded_distance = abs(
-            float(agents[forklift_id]["y"]) - current_position[0]
-        ) + abs(float(agents[forklift_id]["x"]) - current_position[1])
-        loaded_distance = abs(current_position[0] - io_point[0]) + abs(
-            current_position[1] - io_point[1]
+        forklift_position = (
+            int(round(float(agents[forklift_id]["y"]))),
+            int(round(float(agents[forklift_id]["x"]))),
         )
+        unloaded_distance = len(
+            route_function(forklift_position, current_position)
+        ) - 1
+        loaded_distance = len(route_function(current_position, io_point)) - 1
         forklift_distance_total += unloaded_distance + loaded_distance
         transport_time = (
             unloaded_distance + loaded_distance
@@ -344,7 +487,7 @@ def simulate_picking(
         set_state(forklift_id, "waiting")
 
     def process_order(order: PickingOrder):
-        nonlocal next_wait_id
+        nonlocal next_wait_id, worker_active_time
         requested_at = env.now
         next_wait_id += 1
         wait_token = next_wait_id
@@ -404,6 +547,20 @@ def simulate_picking(
                     else:
                         yield from process_batch(batch, worker_id, forklift_id)
 
+                if cargo_size is not CargoSize.SMALL:
+                    worker_position = (
+                        int(round(float(agents[worker_id]["y"]))),
+                        int(round(float(agents[worker_id]["x"]))),
+                    )
+                    return_distance = len(
+                        route_function(worker_position, io_point)
+                    ) - 1
+                    worker_active_time += return_distance / effective_worker_speed
+                    yield from move_agent(
+                        worker_id,
+                        io_point,
+                        effective_worker_speed,
+                    )
                 completion_times[order.order_id] = float(env.now)
                 record_snapshot()
             finally:

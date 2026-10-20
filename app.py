@@ -72,7 +72,7 @@ def run_scenario(
     trace_interval: float = 0.5,
 ) -> tuple[np.ndarray, pd.DataFrame, SimulationResult, int]:
     """Generate a reproducible layout and workload for the selected capacities."""
-    warehouse = WarehouseGrid(width=50, height=50, aisle_spacing=8)
+    warehouse = WarehouseGrid(width=50, height=50, aisle_spacing=5)
     products, orders = prepare_scenario(shelf_count)
     slotting = warehouse.optimize_slotting(
         products,
@@ -93,6 +93,7 @@ def run_scenario(
         cargo_size_class=cargo_size_class,
         max_transport_units=max_transport_units,
         trace_interval=trace_interval,
+        warehouse_grid=warehouse.grid,
     )
     return warehouse.grid.copy(), slotting, result, len(orders)
 
@@ -124,7 +125,7 @@ def run_optimization(
         io_point,
         width=50,
         height=50,
-        aisle_spacing=8,
+        aisle_spacing=5,
         cargo_weight_kg=cargo_weight_kg,
         cargo_size_class=cargo_size_class,
         max_transport_units=max_transport_units,
@@ -538,6 +539,21 @@ def main() -> None:
                     step=30,
                     key="animation_max_frames",
                 )
+                camera_view = st.radio(
+                    "カメラ視点",
+                    options=[
+                        "top",
+                        "perspective",
+                        "side",
+                    ],
+                    format_func=lambda view: {
+                        "perspective": "斜め俯瞰（3Dパース）",
+                        "top": "真上（トップビュー）",
+                        "side": "正面（サイドビュー）",
+                    }[view],
+                    horizontal=False,
+                    key="animation_camera_view",
+                )
                 st.caption(
                     f"モデル時間: 0～{result.makespan:.1f} / "
                     f"記録間隔: {trace_interval:g}"
@@ -552,6 +568,7 @@ def main() -> None:
                     slotting,
                     fps=fps,
                     max_frames=max_frames,
+                    camera_view=camera_view,
                     speed_multiplier={
                         "0.5x": 0.5,
                         "1.0x (標準)": 1.0,

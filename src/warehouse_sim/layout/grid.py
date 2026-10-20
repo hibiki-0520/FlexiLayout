@@ -54,6 +54,17 @@ class WarehouseGrid:
             for row in range(1, height - 1)
             for column in range(1, width - 1)
             if self.grid[row, column] == "."
+            and any(
+                0 <= row + row_delta < height
+                and 0 <= column + column_delta < width
+                and self.grid[row + row_delta, column + column_delta] in {"A", "I"}
+                for row_delta, column_delta in (
+                    (-1, 0),
+                    (0, -1),
+                    (0, 1),
+                    (1, 0),
+                )
+            )
         ]
         self._shelf_positions.sort(key=self._shelf_sort_key)
 

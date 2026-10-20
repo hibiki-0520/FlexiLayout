@@ -146,6 +146,7 @@ def optimize_conditions(
                     cargo_size_class=cargo_size,
                     max_transport_units=max_transport_units,
                     record_trace=False,
+                    warehouse_grid=warehouse.grid,
                 )
                 labor_cost = result.makespan * worker_count * worker_hourly_cost
                 equipment_cost = (
