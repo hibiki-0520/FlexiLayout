@@ -1,0 +1,1395 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101722">
+  <title>FlexiLayout | 3D Warehouse Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1018;
+      --panel: #121a26;
+      --panel-raised: #172231;
+      --line: #263448;
+      --text: #e8eff8;
+      --muted: #91a0b4;
+      --accent: #52d6bd;
+      --blue: #68a9ff;
+      --orange: #ffb454;
+      --danger: #ff777e;
+      font-family: Inter, "Segoe UI", "Noto Sans JP", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse at 68% -15%, rgba(58, 105, 137, .2), transparent 44%),
+        var(--bg);
+    }
+
+    button, input, select { font: inherit; }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 310px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      z-index: 2;
+      padding: 22px 18px 26px;
+      background: rgba(16, 23, 34, .96);
+      border-right: 1px solid var(--line);
+      overflow-y: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin: 0 0 23px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      color: #08221e;
+      background: var(--accent);
+      border-radius: 11px;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .brand h1 { margin: 0; font-size: 17px; letter-spacing: .02em; }
+    .brand p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+    .section { padding: 17px 0; border-top: 1px solid var(--line); }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 13px;
+      color: #c6d2e0;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .06em;
+    }
+
+    .field { display: grid; gap: 6px; margin: 0 0 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label { color: #c6d2e0; font-size: 12px; }
+    .field small, .hint { color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+    input[type="number"], select, .file-button {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      color: var(--text);
+      background: #0c131e;
+      border: 1px solid #2b3b50;
+      border-radius: 8px;
+      outline: none;
+    }
+
+    input[type="number"]:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(82, 214, 189, .12);
+    }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      clip-path: inset(50%);
+    }
+
+    .file-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #dce8f5;
+      border-style: dashed;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .file-button:hover { background: #152232; border-color: var(--accent); }
+
+    .button-row { display: flex; gap: 8px; margin-top: 11px; }
+
+    .button {
+      min-height: 37px;
+      padding: 8px 11px;
+      color: #dce8f5;
+      background: #1a2737;
+      border: 1px solid #30435b;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s, transform .15s;
+    }
+
+    .button:hover { background: #22344a; border-color: #4b6685; }
+    .button:active { transform: translateY(1px); }
+    .button.primary {
+      flex: 1;
+      color: #08221e;
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 800;
+    }
+
+    .button.primary:hover { background: #76e5cf; }
+
+    .main { min-width: 0; padding: 24px clamp(16px, 3vw, 36px) 32px; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 0 0 19px;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .topbar h2 { margin: 0; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.03em; }
+    .topbar .subtext { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+
+    .app-nav {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin: 0 0 18px;
+      padding: 6px;
+      overflow-x: auto;
+      background: rgba(18, 26, 38, .88);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      scrollbar-width: thin;
+    }
+
+    .app-nav a {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 12px;
+      color: #aebdcd;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 650;
+      text-decoration: none;
+      transition: color .15s, background .15s, border-color .15s;
+    }
+
+    .app-nav a:hover {
+      color: var(--text);
+      background: #1a2737;
+      border-color: #30435b;
+    }
+
+    .app-nav a[aria-current="page"] {
+      color: #b9fff0;
+      background: rgba(82, 214, 189, .1);
+      border-color: rgba(82, 214, 189, .3);
+    }
+
+    .app-nav .nav-spacer { flex: 1 0 8px; }
+    .app-nav a.nav-tool { color: #09231f; background: var(--accent); font-weight: 800; }
+    .app-nav a.nav-tool:hover { background: #76e5cf; }
+
+    html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+
+    .live-badge {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      color: #b9c8d8;
+      background: #121c29;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 11px;
+    }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(82, 214, 189, .75);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 11px;
+      margin-bottom: 15px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 13px 15px;
+      background: linear-gradient(145deg, #15202e, #111925);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+    }
+
+    .metric-label { color: var(--muted); font-size: 10px; }
+    .metric-value { margin-top: 6px; font-size: 20px; font-weight: 750; }
+    .metric-value small { color: var(--muted); font-size: 11px; font-weight: 500; }
+
+    .viewer-card {
+      overflow: hidden;
+      background: #101923;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, .22);
+    }
+
+    .viewer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 49px;
+      padding: 9px 13px;
+      background: #131e2b;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .viewer-title { display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 700; }
+    .viewer-title span { color: var(--muted); font-size: 10px; font-weight: 500; }
+    .toolbar-actions { display: flex; align-items: center; gap: 7px; }
+    .toolbar-actions .button { min-height: 31px; padding: 5px 9px; font-size: 11px; }
+
+    #scene-container {
+      position: relative;
+      width: 100%;
+      height: min(68vh, 690px);
+      min-height: 390px;
+      background: #17232e;
+    }
+
+    #scene-container canvas { display: block; width: 100%; height: 100%; }
+    #scene-message {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: #ffe0a5;
+      background: rgba(11, 16, 24, .94);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .legend {
+      position: absolute;
+      right: 13px;
+      bottom: 13px;
+      display: grid;
+      gap: 8px;
+      padding: 11px 12px;
+      background: rgba(12, 19, 29, .86);
+      border: 1px solid rgba(112, 139, 166, .23);
+      border-radius: 9px;
+      backdrop-filter: blur(9px);
+      pointer-events: none;
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; color: #ccd8e4; font-size: 10px; }
+    .legend-swatch { width: 9px; height: 9px; border-radius: 3px; }
+    .legend-line { width: 14px; height: 3px; border-radius: 2px; }
+
+    .viewer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .viewer-footer strong { color: #cbd8e5; font-weight: 600; }
+    .status { min-height: 15px; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--accent); }
+
+    .category-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .category-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 7px;
+      color: #c8d4e1;
+      background: #172231;
+      border: 1px solid #29394d;
+      border-radius: 999px;
+      font-size: 9px;
+    }
+
+    .category-chip i { width: 7px; height: 7px; border-radius: 50%; }
+
+    @media (max-width: 900px) {
+      .app-shell { grid-template-columns: 270px minmax(0, 1fr); }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #scene-container { height: 60vh; }
+    }
+
+    @media (max-width: 650px) {
+      .app-shell { display: flex; flex-direction: column; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .sidebar-inner { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+      .brand, .section:first-of-type, .section:last-of-type { grid-column: 1 / -1; }
+      .main { padding: 18px 12px 24px; }
+      .app-nav { margin-bottom: 14px; }
+      .app-nav a { padding-inline: 10px; }
+      .topbar { align-items: center; }
+      .topbar .subtext { max-width: 40ch; line-height: 1.45; }
+      .live-badge { font-size: 0; }
+      .live-dot { width: 9px; height: 9px; }
+      #scene-container { min-height: 360px; height: 56vh; }
+      .viewer-footer { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+        <header class="brand">
+          <div class="brand-mark" aria-hidden="true">F</div>
+          <div>
+            <h1>FlexiLayout</h1>
+            <p>3D Warehouse Studio</p>
+          </div>
+        </header>
+
+        <section class="section">
+          <h3 class="section-title">シナリオ</h3>
+          <div class="field">
+            <label for="scenario">レイアウトプリセット</label>
+            <select id="scenario">
+              <option value="standard">標準倉庫</option>
+              <option value="compact">コンパクト</option>
+              <option value="high-volume">高密度・多品種</option>
+              <option value="wide">大型物流センター</option>
+            </select>
+          </div>
+          <p class="hint">プリセットを選ぶと倉庫条件を更新します。個別入力やCSV登録後も、シーンはすぐに再描画されます。</p>
+        </section>
+
+        <section class="section" id="warehouse-settings">
+          <h3 class="section-title">倉庫条件</h3>
+          <div class="two-col">
+            <div class="field">
+              <label for="warehouse-width">幅 (m)</label>
+              <input id="warehouse-width" type="number" min="20" max="160" step="1" value="60">
+            </div>
+            <div class="field">
+              <label for="warehouse-depth">奥行 (m)</label>
+              <input id="warehouse-depth" type="number" min="20" max="160" step="1" value="48">
+            </div>
+          </div>
+          <div class="two-col">
+            <div class="field">
+              <label for="shelf-count">棚の数</label>
+              <input id="shelf-count" type="number" min="1" max="1000" step="1" value="72">
+            </div>
+            <div class="field">
+              <label for="rack-levels">棚の段数</label>
+              <input id="rack-levels" type="number" min="2" max="8" step="1" value="4">
+            </div>
+          </div>
+          <div class="two-col">
+            <div class="field">
+              <label for="rack-height">棚の高さ (m)</label>
+              <input id="rack-height" type="number" min="2" max="16" step="0.5" value="7">
+            </div>
+            <div class="field">
+              <label for="aisle-width">主通路幅 (m)</label>
+              <input id="aisle-width" type="number" min="1" max="12" step="0.5" value="4">
+            </div>
+          </div>
+          <div class="field">
+            <label for="agv-count">稼働AGV台数</label>
+            <input id="agv-count" type="number" min="1" max="8" step="1" value="3">
+          </div>
+        </section>
+
+        <section class="section" id="product-data">
+          <h3 class="section-title">商品・棚割りデータ</h3>
+          <div class="field">
+            <label class="file-button" for="csv-file">
+              <span aria-hidden="true">⇧</span>
+              CSVを選択して一括登録
+            </label>
+            <input class="file-input" id="csv-file" type="file" accept=".csv,text/csv">
+            <small>列の例: name, category, capacity, filled。1行を1棚として読み込みます。</small>
+          </div>
+          <div class="button-row">
+            <button class="button primary" id="apply-csv" type="button">CSVを読み込む</button>
+            <button class="button" id="clear-csv" type="button">解除</button>
+          </div>
+          <div id="csv-status" class="status" aria-live="polite">サンプル商品データを表示中</div>
+          <div id="category-legend" class="category-list" aria-label="商品カテゴリ凡例"></div>
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">アニメーション</h3>
+          <div class="field">
+            <label for="playback-speed">再生速度</label>
+            <select id="playback-speed">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1.0x</option>
+              <option value="2">2.0x</option>
+              <option value="4">4.0x</option>
+            </select>
+          </div>
+          <button class="button" id="toggle-animation" type="button" style="width:100%">一時停止</button>
+        </section>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Warehouse digital twin</p>
+          <h2>倉庫オペレーションを3Dで可視化</h2>
+          <p class="subtext">棚割り、カテゴリ構成、運搬ルートをインタラクティブな3D空間で確認できます。</p>
+        </div>
+        <div class="live-badge"><span class="live-dot"></span>LIVE SIMULATION</div>
+      </header>
+
+      <nav class="app-nav" aria-label="FlexiLayout ナビゲーション">
+        <a href="#warehouse-view" aria-current="page">3D倉庫スタジオ</a>
+        <a href="#warehouse-settings">倉庫配置</a>
+        <a href="#product-data">商品・棚割り</a>
+        <span class="nav-spacer" aria-hidden="true"></span>
+        <a class="nav-tool" href="http://localhost:8501" title="Streamlitのピッキングシミュレーションと最適化を開く">
+          シミュレーション・最適化 ↗
+        </a>
+      </nav>
+
+      <section class="metrics" aria-label="倉庫レイアウト概要">
+        <article class="metric">
+          <div class="metric-label">登録棚数</div>
+          <div class="metric-value"><span id="metric-shelves">72</span> <small>棚</small></div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">商品カテゴリ</div>
+          <div class="metric-value"><span id="metric-categories">3</span> <small>カテゴリ</small></div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">倉庫面積</div>
+          <div class="metric-value"><span id="metric-area">2,880</span> <small>m²</small></div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">稼働AGV</div>
+          <div class="metric-value"><span id="metric-agvs">3</span> <small>台</small></div>
+        </article>
+      </section>
+
+      <section class="viewer-card" id="warehouse-view" aria-label="3D倉庫ビュー">
+        <div class="viewer-toolbar">
+          <div class="viewer-title">倉庫3Dビュー <span id="scene-summary">60 m × 48 m</span></div>
+          <div class="toolbar-actions">
+            <button class="button" id="reset-camera" type="button" title="カメラを初期位置に戻す">視点リセット</button>
+            <button class="button" id="toggle-walls" type="button" aria-pressed="true">壁を表示</button>
+          </div>
+        </div>
+        <div id="scene-container">
+          <div id="scene-message" role="status"></div>
+          <div class="legend" aria-label="3Dビュー凡例">
+            <div class="legend-item"><i class="legend-swatch" style="background:#52d6bd"></i>入荷口</div>
+            <div class="legend-item"><i class="legend-swatch" style="background:#ff777e"></i>出荷口</div>
+            <div class="legend-item"><i class="legend-swatch" style="background:#68a9ff"></i>運搬AGV</div>
+            <div class="legend-item"><i class="legend-line" style="background:#52d6bd"></i>AGV走行ルート</div>
+          </div>
+        </div>
+        <div class="viewer-footer">
+          <span><strong>操作:</strong> ドラッグで回転・右ドラッグで平行移動・スクロールでズーム</span>
+          <span id="render-status">WebGL レンダリング準備中</span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const $ = (id) => document.getElementById(id);
+    const container = $("scene-container");
+    const message = $("scene-message");
+    const renderStatus = $("render-status");
+    const categoryLegend = $("category-legend");
+    const palette = ["#57d7c3", "#73a8ff", "#ffb45e", "#cb8cff", "#ff7e88", "#a8d46a", "#54c9e8", "#e2ca66"];
+    const categoryColors = new Map();
+    const defaultCategoryNames = ["A高速回転", "B標準", "C低頻度"];
+    let renderer;
+    let scene;
+    let camera;
+    let controls;
+    let warehouseGroup;
+    let rackGroup;
+    let routeGroup;
+    let agvGroup;
+    let resizeObserver;
+    let shelves = [];
+    let animationPaused = false;
+    let showWalls = true;
+    let sceneRevision = 0;
+    let animationStart = performance.now();
+    let lastRenderWidth = 0;
+    let lastRenderHeight = 0;
+    let rafId = 0;
+    let resizeTimer = 0;
+
+    function setStatus(text, kind = "") {
+      const node = $("csv-status");
+      node.textContent = text;
+      node.className = `status ${kind}`;
+    }
+
+    function clampNumber(id, fallback, min, max, integer = false) {
+      const element = $(id);
+      const raw = Number(element.value);
+      const value = Number.isFinite(raw) ? raw : fallback;
+      const bounded = Math.min(max, Math.max(min, value));
+      const result = integer ? Math.round(bounded) : bounded;
+      if (element.value !== "" && Number.isFinite(raw)) element.value = String(result);
+      return result;
+    }
+
+    function getSettings() {
+      return {
+        width: clampNumber("warehouse-width", 60, 20, 160, true),
+        depth: clampNumber("warehouse-depth", 48, 20, 160, true),
+        count: clampNumber("shelf-count", 72, 1, 1000, true),
+        levels: clampNumber("rack-levels", 4, 2, 8, true),
+        rackHeight: clampNumber("rack-height", 7, 2, 16),
+        aisleWidth: clampNumber("aisle-width", 4, 1, 12),
+        agvCount: clampNumber("agv-count", 3, 1, 8, true),
+        speed: Number($("playback-speed").value) || 1
+      };
+    }
+
+    function normalizeCategory(category, index) {
+      const value = String(category || "").trim();
+      return value || defaultCategoryNames[index % defaultCategoryNames.length];
+    }
+
+    function getCategoryColor(category) {
+      if (!categoryColors.has(category)) {
+        categoryColors.set(category, palette[categoryColors.size % palette.length]);
+      }
+      return categoryColors.get(category);
+    }
+
+    function makeDefaultShelves(count) {
+      return Array.from({ length: count }, (_, index) => {
+        const categoryIndex = index % 10 < 5 ? 0 : index % 10 < 8 ? 1 : 2;
+        const category = defaultCategoryNames[categoryIndex];
+        return {
+          name: `SKU-${String(index + 1).padStart(3, "0")}`,
+          category,
+          capacity: 100,
+          filled: 28 + ((index * 37) % 65)
+        };
+      });
+    }
+
+    function syncShelvesToCount() {
+      const count = getSettings().count;
+      if (shelves.length > count) {
+        shelves = shelves.slice(0, count);
+      } else if (shelves.length < count) {
+        const next = makeDefaultShelves(count);
+        shelves = shelves.concat(next.slice(shelves.length));
+      }
+    }
+
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let cell = "";
+      let quoted = false;
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (quoted) {
+          if (char === '"' && text[index + 1] === '"') {
+            cell += '"';
+            index += 1;
+          } else if (char === '"') {
+            quoted = false;
+          } else {
+            cell += char;
+          }
+        } else if (char === '"' && cell.length === 0) {
+          quoted = true;
+        } else if (char === ",") {
+          row.push(cell.trim());
+          cell = "";
+        } else if (char === "\n" || char === "\r") {
+          if (char === "\r" && text[index + 1] === "\n") index += 1;
+          row.push(cell.trim());
+          cell = "";
+          if (row.some((value) => value !== "")) rows.push(row);
+          row = [];
+        } else {
+          cell += char;
+        }
+      }
+      if (quoted) throw new Error("CSVの引用符が閉じられていません。");
+      if (cell.length > 0 || row.length > 0) {
+        row.push(cell.trim());
+        if (row.some((value) => value !== "")) rows.push(row);
+      }
+      if (rows.length === 0) throw new Error("CSVにデータ行がありません。");
+
+      const normalizeHeader = (value) => value.trim().toLowerCase().replace(/[\s_-]/g, "");
+      const first = rows[0].map(normalizeHeader);
+      const hasHeader = first.some((value) => ["name", "sku", "product", "商品", "category", "カテゴリ", "capacity", "容量"].includes(value));
+      const headers = hasHeader ? first : ["name", "category", "capacity", "filled"];
+      const dataRows = hasHeader ? rows.slice(1) : rows;
+      const findColumn = (aliases, fallback) => {
+        const index = headers.findIndex((value) => aliases.includes(value));
+        return index >= 0 ? index : fallback;
+      };
+      const nameColumn = findColumn(["name", "sku", "product", "productname", "商品", "商品名", "棚名"], 0);
+      const categoryColumn = findColumn(["category", "カテゴリ", "商品カテゴリ", "abc", "class"], 1);
+      const capacityColumn = findColumn(["capacity", "容量", "maxcapacity"], 2);
+      const filledColumn = findColumn(["filled", "fill", "在庫", "使用率", "occupancy"], 3);
+      const result = dataRows.map((values, index) => {
+        const capacityValue = Number(values[capacityColumn]);
+        const filledValue = Number(values[filledColumn]);
+        const capacity = Number.isFinite(capacityValue) && capacityValue > 0 ? capacityValue : 100;
+        let filled = Number.isFinite(filledValue) ? filledValue : 30 + ((index * 31) % 65);
+        if (filled > 0 && filled <= 1) filled *= 100;
+        else if (filled > 1) filled = (filled / capacity) * 100;
+        filled = Math.min(100, Math.max(0, filled));
+        return {
+          name: values[nameColumn] || `SKU-${String(index + 1).padStart(3, "0")}`,
+          category: normalizeCategory(values[categoryColumn], index),
+          capacity,
+          filled
+        };
+      }).filter((item) => item.name);
+      if (result.length === 0) throw new Error("CSVから棚データを読み込めませんでした。");
+      return result;
+    }
+
+    function clearGroup(group) {
+      if (!group) return;
+      group.traverse((object) => {
+        if (object.geometry) object.geometry.dispose();
+        if (object.material) {
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach((material) => {
+            if (material.map) material.map.dispose();
+            material.dispose();
+          });
+        }
+      });
+      group.clear();
+    }
+
+    function makeStandardMaterial(color, options = {}) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        roughness: options.roughness ?? 0.8,
+        metalness: options.metalness ?? 0.05,
+        transparent: options.transparent ?? false,
+        opacity: options.opacity ?? 1,
+        side: options.side ?? THREE.FrontSide
+      });
+    }
+
+    function addBox(parent, dimensions, position, material, castShadow = false, receiveShadow = false) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(dimensions[0], dimensions[1], dimensions[2]),
+        material
+      );
+      mesh.position.set(position[0], position[1], position[2]);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function addTextLabel(text, color, position, scale = 1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 128;
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = color;
+      context.font = "700 44px Segoe UI, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(text, canvas.width / 2, canvas.height / 2);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false
+      }));
+      sprite.position.set(position[0], position[1], position[2]);
+      sprite.scale.set(5.2 * scale, 1.3 * scale, 1);
+      warehouseGroup.add(sprite);
+    }
+
+    function buildBase(settings) {
+      if (warehouseGroup) {
+        scene.remove(warehouseGroup);
+        clearGroup(warehouseGroup);
+      }
+      warehouseGroup = new THREE.Group();
+      scene.add(warehouseGroup);
+
+      const width = settings.width;
+      const depth = settings.depth;
+      const halfW = width / 2;
+      const halfD = depth / 2;
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, depth),
+        makeStandardMaterial("#27333b", { roughness: 0.96 })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = -0.08;
+      floor.receiveShadow = true;
+      warehouseGroup.add(floor);
+
+      const grid = new THREE.GridHelper(Math.max(width, depth), Math.max(width, depth), "#576875", "#3b4a55");
+      grid.position.y = -0.055;
+      grid.material.transparent = true;
+      grid.material.opacity = 0.34;
+      warehouseGroup.add(grid);
+
+      const centerLane = addBox(
+        warehouseGroup,
+        [width - 3, 0.025, settings.aisleWidth],
+        [0, -0.035, 0],
+        makeStandardMaterial("#45574e", { roughness: 1 })
+      );
+      centerLane.receiveShadow = true;
+
+      for (let x = -halfW + 1; x <= halfW - 1; x += 4) {
+        addBox(
+          warehouseGroup,
+          [1.5, 0.012, 0.055],
+          [x, -0.012, 0],
+          makeStandardMaterial("#d6c778", { roughness: 1 })
+        );
+      }
+
+      const wallMaterial = makeStandardMaterial("#506171", {
+        roughness: 0.85,
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide
+      });
+      const wallHeight = Math.max(4.2, settings.rackHeight + 1.2);
+      const walls = new THREE.Group();
+      walls.add(new THREE.Mesh(
+        new THREE.BoxGeometry(width, wallHeight, 0.26),
+        wallMaterial
+      ));
+      walls.children[0].position.set(0, wallHeight / 2, -halfD);
+      walls.add(new THREE.Mesh(
+        new THREE.BoxGeometry(width, wallHeight, 0.26),
+        wallMaterial
+      ));
+      walls.children[1].position.set(0, wallHeight / 2, halfD);
+      walls.add(new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, wallHeight, depth),
+        wallMaterial
+      ));
+      walls.children[2].position.set(-halfW, wallHeight / 2, 0);
+      walls.add(new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, wallHeight, depth),
+        wallMaterial
+      ));
+      walls.children[3].position.set(halfW, wallHeight / 2, 0);
+      walls.visible = showWalls;
+      warehouseGroup.add(walls);
+      warehouseGroup.userData.walls = walls;
+
+      buildDock(-halfW + 0.7, 0, "#52d6bd", "INBOUND");
+      buildDock(halfW - 0.7, 0, "#ff777e", "OUTBOUND");
+      addTextLabel(`${width} m`, "#d5e1ed", [0, 0.08, halfD + 1.7], 0.72);
+      addTextLabel(`${depth} m`, "#d5e1ed", [-halfW - 1.6, 0.08, 0], 0.72);
+    }
+
+    function buildDock(x, z, color, label) {
+      const hex = new THREE.Color(color);
+      const dock = new THREE.Group();
+      const width = 3.4;
+      const height = 2.5;
+      const depth = 3.8;
+      const frameMaterial = makeStandardMaterial(hex, { metalness: 0.32, roughness: 0.48 });
+      const floorMaterial = makeStandardMaterial("#35434d", { roughness: 0.94 });
+      addBox(dock, [width, 0.12, depth], [0, 0.02, 0], floorMaterial, false, true);
+      addBox(dock, [0.12, height, 0.12], [-width / 2, height / 2, 0], frameMaterial);
+      addBox(dock, [0.12, height, 0.12], [width / 2, height / 2, 0], frameMaterial);
+      addBox(dock, [width, 0.12, 0.12], [0, height, 0], frameMaterial);
+      const glow = new THREE.PointLight(hex, 1.4, 9);
+      glow.position.set(0, 2.8, 0);
+      dock.add(glow);
+      dock.position.set(x, 0, z);
+      warehouseGroup.add(dock);
+      addTextLabel(label, color, [x, height + 1.1, z], 0.74);
+    }
+
+    function getShelfPositions(settings) {
+      const count = shelves.length;
+      const columns = Math.max(1, Math.ceil(Math.sqrt(count * settings.width / settings.depth)));
+      const rows = Math.ceil(count / columns);
+      const pitchX = (settings.width - 8) / columns;
+      const pitchZ = (settings.depth - settings.aisleWidth - 8) / Math.max(1, Math.ceil(rows / 2));
+      const rackWidth = Math.min(2.8, pitchX * 0.62);
+      const rackDepth = Math.min(1.7, pitchZ * 0.56);
+      const positions = [];
+      const rowsPerSide = Math.max(1, Math.ceil(rows / 2));
+      const usableHalfDepth = Math.max(
+        settings.aisleWidth / 2 + rackDepth / 2 + 1,
+        settings.depth / 2 - rackDepth / 2 - 2
+      );
+
+      for (let index = 0; index < count; index += 1) {
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        const sideRow = Math.floor(row / 2);
+        const side = row % 2 === 0 ? -1 : 1;
+        const x = -settings.width / 2 + 4 + pitchX * (column + 0.5);
+        const rowStep = (usableHalfDepth - settings.aisleWidth / 2 - rackDepth / 2) / rowsPerSide;
+        const z = side * (settings.aisleWidth / 2 + rackDepth / 2 + rowStep * (sideRow + 0.5));
+        positions.push({ x, z, width: rackWidth, depth: rackDepth, column, side });
+      }
+      return { positions, columns, rows, rackWidth, rackDepth };
+    }
+
+    function addInstancedBoxes(parent, geometry, material, transforms) {
+      if (transforms.length === 0) return;
+      const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const object = new THREE.Object3D();
+      transforms.forEach((transform, index) => {
+        object.position.set(transform.x, transform.y, transform.z);
+        object.rotation.set(0, transform.rotationY || 0, 0);
+        object.scale.set(transform.sx, transform.sy, transform.sz);
+        object.updateMatrix();
+        mesh.setMatrixAt(index, object.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      parent.add(mesh);
+    }
+
+    function buildRacks(settings) {
+      if (rackGroup) {
+        scene.remove(rackGroup);
+        clearGroup(rackGroup);
+      }
+      rackGroup = new THREE.Group();
+      scene.add(rackGroup);
+      const layout = getShelfPositions(settings);
+      const categoryTransforms = new Map();
+      const rackHeight = settings.rackHeight;
+      const levelCount = settings.levels;
+      const levelStep = rackHeight / levelCount;
+      const postGeometry = new THREE.BoxGeometry(1, 1, 1);
+      const beamGeometry = new THREE.BoxGeometry(1, 1, 1);
+      const deckGeometry = new THREE.BoxGeometry(1, 1, 1);
+      const loadGeometry = new THREE.BoxGeometry(1, 1, 1);
+      const steelMaterial = makeStandardMaterial("#8295a2", { metalness: 0.68, roughness: 0.38 });
+      const beamMaterial = makeStandardMaterial("#f39a52", { metalness: 0.38, roughness: 0.5 });
+      const deckMaterial = makeStandardMaterial("#485967", { metalness: 0.28, roughness: 0.58 });
+
+      shelves.forEach((shelf, index) => {
+        const position = layout.positions[index];
+        const category = normalizeCategory(shelf.category, index);
+        if (!categoryTransforms.has(category)) {
+          categoryTransforms.set(category, { posts: [], decks: [], beams: [], loads: [] });
+        }
+        const transforms = categoryTransforms.get(category);
+        const postWidth = Math.min(0.14, position.width * 0.08);
+        const postDepth = Math.min(0.14, position.depth * 0.12);
+        const left = position.x - position.width / 2 + postWidth / 2;
+        const right = position.x + position.width / 2 - postWidth / 2;
+        const front = position.z - position.depth / 2 + postDepth / 2;
+        const back = position.z + position.depth / 2 - postDepth / 2;
+        [left, right].forEach((x) => {
+          [front, back].forEach((z) => {
+            transforms.posts.push({
+              x, y: rackHeight / 2, z,
+              sx: postWidth, sy: rackHeight, sz: postDepth
+            });
+          });
+        });
+
+        const capacityRatio = shelf.capacity > 0 ? shelf.filled / 100 : 0.3;
+
+        for (let level = 1; level <= levelCount; level += 1) {
+          const y = Math.min(rackHeight - 0.22, level * levelStep);
+          transforms.decks.push({
+            x: position.x, y, z: position.z,
+            sx: position.width, sy: 0.11, sz: position.depth
+          });
+          [front, back].forEach((z) => {
+            transforms.beams.push({
+              x: position.x, y: Math.max(0.2, y - 0.13), z,
+              sx: position.width, sy: 0.13, sz: 0.12
+            });
+          });
+          const usableRatio = Math.max(0.25, Math.min(0.9, capacityRatio));
+          transforms.loads.push({
+            x: position.x,
+            y: Math.max(0.35, y - 0.11 + levelStep * 0.27),
+            z: position.z,
+            sx: position.width * usableRatio * 0.75,
+            sy: Math.max(0.18, levelStep * 0.3),
+            sz: position.depth * 0.56
+          });
+        }
+      });
+
+      categoryTransforms.forEach((transforms, category) => {
+        const color = new THREE.Color(getCategoryColor(category));
+        const cargoMaterial = makeStandardMaterial(color, { roughness: 0.73 });
+        addInstancedBoxes(
+          rackGroup,
+          postGeometry,
+          steelMaterial,
+          transforms.posts
+        );
+        addInstancedBoxes(
+          rackGroup,
+          deckGeometry,
+          deckMaterial,
+          transforms.decks
+        );
+        addInstancedBoxes(
+          rackGroup,
+          beamGeometry,
+          beamMaterial,
+          transforms.beams
+        );
+        addInstancedBoxes(
+          rackGroup,
+          loadGeometry,
+          cargoMaterial,
+          transforms.loads
+        );
+      });
+
+      return layout;
+    }
+
+    function createRouteForShelf(shelfIndex, settings, layout) {
+      const halfW = settings.width / 2;
+      const halfD = settings.depth / 2;
+      const shelf = layout.positions[shelfIndex];
+      const inbound = new THREE.Vector3(-halfW + 2.7, 0.28, 0);
+      const outbound = new THREE.Vector3(halfW - 2.7, 0.28, 0);
+      const aisleX = Math.max(
+        -halfW + 2,
+        Math.min(halfW - 2, -halfW + 4 + layout.rackWidth * (shelf.column + 0.5) + 0.65)
+      );
+      const shelfApproachZ = shelf.z + shelf.side * (shelf.depth / 2 + 0.55);
+      const innerZ = Math.max(-halfD + 1, Math.min(halfD - 1, shelfApproachZ));
+      const points = [
+        inbound,
+        new THREE.Vector3(aisleX, 0.28, 0),
+        new THREE.Vector3(aisleX, 0.28, innerZ),
+        new THREE.Vector3(shelf.x, 0.28, innerZ),
+        new THREE.Vector3(shelf.x, 0.28, innerZ),
+        new THREE.Vector3(aisleX, 0.28, innerZ),
+        new THREE.Vector3(aisleX, 0.28, 0),
+        outbound,
+        inbound
+      ];
+      const curve = new THREE.CatmullRomCurve3(points, false, "centripetal", 0.15);
+      return { curve, points };
+    }
+
+    function buildRoutesAndAgvs(settings, layout) {
+      if (routeGroup) {
+        scene.remove(routeGroup);
+        clearGroup(routeGroup);
+      }
+      if (agvGroup) {
+        scene.remove(agvGroup);
+        clearGroup(agvGroup);
+      }
+      routeGroup = new THREE.Group();
+      agvGroup = new THREE.Group();
+      scene.add(routeGroup, agvGroup);
+
+      const lineMaterial = new THREE.LineBasicMaterial({
+        color: "#52d6bd",
+        transparent: true,
+        opacity: 0.26
+      });
+      const routeCount = Math.min(shelves.length, 30);
+      const routes = Array.from(
+        { length: shelves.length },
+        (_, index) => createRouteForShelf(index, settings, layout)
+      );
+      for (let index = 0; index < routeCount; index += 1) {
+        const { curve } = routes[index];
+        const points = curve.getPoints(28);
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        routeGroup.add(new THREE.Line(geometry, lineMaterial));
+      }
+      agvGroup.userData.routes = routes;
+
+      const bodyGeometry = new THREE.BoxGeometry(0.95, 0.42, 0.72);
+      const bodyMaterial = makeStandardMaterial("#68a9ff", { metalness: 0.38, roughness: 0.38 });
+      const trimMaterial = makeStandardMaterial("#dce9f4", { metalness: 0.45, roughness: 0.3 });
+      const wheelGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.12, 14);
+      const wheelMaterial = makeStandardMaterial("#111820", { roughness: 0.92 });
+      const loadMaterial = makeStandardMaterial("#ffb454", { roughness: 0.65 });
+
+      for (let index = 0; index < settings.agvCount; index += 1) {
+        const vehicle = new THREE.Group();
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.castShadow = true;
+        vehicle.add(body);
+
+        const top = addBox(
+          vehicle,
+          [0.45, 0.14, 0.46],
+          [-0.06, 0.27, 0],
+          trimMaterial,
+          true
+        );
+        top.position.y = 0.27;
+        const cargo = addBox(
+          vehicle,
+          [0.43, 0.44, 0.43],
+          [0.1, 0.67, 0],
+          loadMaterial,
+          true
+        );
+        cargo.position.y = 0.67;
+        for (const x of [-0.31, 0.31]) {
+          for (const z of [-0.39, 0.39]) {
+            const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(x, -0.18, z);
+            vehicle.add(wheel);
+          }
+        }
+        const beacon = new THREE.Mesh(
+          new THREE.SphereGeometry(0.08, 12, 10),
+          makeStandardMaterial(index % 2 === 0 ? "#68a9ff" : "#ffb454", {
+            emissive: index % 2 === 0 ? "#142a4c" : "#48290c"
+          })
+        );
+        beacon.position.set(-0.28, 0.42, 0);
+        vehicle.add(beacon);
+        vehicle.userData.agvIndex = index;
+        agvGroup.add(vehicle);
+      }
+      bodyGeometry.dispose();
+      wheelGeometry.dispose();
+      return layout;
+    }
+
+    function updateLegend() {
+      const counts = new Map();
+      shelves.forEach((shelf, index) => {
+        const category = normalizeCategory(shelf.category, index);
+        counts.set(category, (counts.get(category) || 0) + 1);
+      });
+      categoryLegend.replaceChildren();
+      [...counts.entries()].slice(0, 8).forEach(([category, count]) => {
+        const chip = document.createElement("span");
+        chip.className = "category-chip";
+        const swatch = document.createElement("i");
+        swatch.style.background = getCategoryColor(category);
+        const label = document.createElement("span");
+        label.textContent = `${category} · ${count}`;
+        chip.append(swatch, label);
+        categoryLegend.append(chip);
+      });
+    }
+
+    function updateMetrics(settings, layout) {
+      $("metric-shelves").textContent = shelves.length.toLocaleString("ja-JP");
+      $("metric-categories").textContent = new Set(shelves.map((shelf, index) => normalizeCategory(shelf.category, index))).size.toLocaleString("ja-JP");
+      $("metric-area").textContent = (settings.width * settings.depth).toLocaleString("ja-JP");
+      $("metric-agvs").textContent = String(settings.agvCount);
+      $("scene-summary").textContent = `${settings.width} m × ${settings.depth} m · ${layout.columns}列 × ${layout.rows}行`;
+      $("render-status").textContent = `${shelves.length.toLocaleString("ja-JP")}棚を描画 · ${settings.agvCount}台運行中`;
+      updateLegend();
+    }
+
+    function rebuildScene() {
+      if (!renderer || !scene) return;
+      const revision = ++sceneRevision;
+      syncShelvesToCount();
+      const settings = getSettings();
+      categoryColors.clear();
+      shelves.forEach((shelf, index) => getCategoryColor(normalizeCategory(shelf.category, index)));
+      buildBase(settings);
+      const layout = buildRacks(settings);
+      buildRoutesAndAgvs(settings, layout);
+      updateMetrics(settings, layout);
+      animationStart = performance.now();
+      if (revision === sceneRevision) renderStatus.textContent = `${shelves.length.toLocaleString("ja-JP")}棚を描画 · ${settings.agvCount}台運行中`;
+    }
+
+    function updateCamera() {
+      if (!camera || !controls) return;
+      const settings = getSettings();
+      const maxSide = Math.max(settings.width, settings.depth);
+      camera.position.set(maxSide * 0.78, maxSide * 0.92, maxSide * 0.92);
+      camera.near = 0.1;
+      camera.far = maxSide * 12;
+      camera.updateProjectionMatrix();
+      controls.target.set(0, settings.rackHeight * 0.24, 0);
+      controls.maxDistance = maxSide * 5;
+      controls.update();
+    }
+
+    function resizeRenderer() {
+      if (!renderer || !camera) return;
+      const width = Math.max(1, container.clientWidth);
+      const height = Math.max(1, container.clientHeight);
+      if (width === lastRenderWidth && height === lastRenderHeight) return;
+      lastRenderWidth = width;
+      lastRenderHeight = height;
+      renderer.setSize(width, height, false);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+
+    function animate(now) {
+      rafId = requestAnimationFrame(animate);
+      if (!renderer || !scene || !camera) return;
+      resizeRenderer();
+      if (!animationPaused && agvGroup && shelves.length > 0) {
+        const settings = getSettings();
+        const elapsed = (now - animationStart) / 1000;
+        const cycleSeconds = 18;
+        const routes = agvGroup.userData.routes;
+        agvGroup.children.forEach((vehicle) => {
+          const index = vehicle.userData.agvIndex || 0;
+          const totalDuration = cycleSeconds * shelves.length;
+          const routeOffset = elapsed * settings.speed + index * cycleSeconds / Math.max(1, settings.agvCount);
+          const routeTime = ((routeOffset % totalDuration) + totalDuration) % totalDuration;
+          const shelfIndex = Math.min(shelves.length - 1, Math.floor(routeTime / cycleSeconds));
+          const localPhase = (routeTime % cycleSeconds) / cycleSeconds;
+          const route = routes[shelfIndex] || createRouteForShelf(
+            shelfIndex,
+            settings,
+            getShelfPositions(settings)
+          );
+          const { curve } = route;
+          const point = curve.getPoint(localPhase);
+          const tangent = curve.getTangent(localPhase);
+          vehicle.position.copy(point);
+          vehicle.position.y += 0.04;
+          vehicle.rotation.y = Math.atan2(-tangent.z, tangent.x);
+        });
+      }
+      controls?.update();
+      renderer.render(scene, camera);
+    }
+
+    function initializeThree() {
+      try {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color("#17232e");
+        scene.fog = new THREE.Fog("#17232e", 110, 310);
+
+        camera = new THREE.PerspectiveCamera(43, 1, 0.1, 1200);
+        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.18;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.prepend(renderer.domElement);
+        renderer.domElement.setAttribute("aria-label", "マウスで操作できる倉庫3Dモデル");
+
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.065;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 12;
+        controls.maxPolarAngle = Math.PI / 2.03;
+
+        scene.add(new THREE.HemisphereLight("#d9e9f6", "#303b42", 2.05));
+        const keyLight = new THREE.DirectionalLight("#fff0d8", 3.4);
+        keyLight.position.set(-35, 65, 28);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.set(2048, 2048);
+        keyLight.shadow.camera.left = -100;
+        keyLight.shadow.camera.right = 100;
+        keyLight.shadow.camera.top = 100;
+        keyLight.shadow.camera.bottom = -100;
+        keyLight.shadow.bias = -0.00015;
+        scene.add(keyLight);
+        const fillLight = new THREE.DirectionalLight("#9fc9ef", 1.2);
+        fillLight.position.set(45, 35, -45);
+        scene.add(fillLight);
+
+        resizeObserver = new ResizeObserver(() => {
+          window.clearTimeout(resizeTimer);
+          resizeTimer = window.setTimeout(resizeRenderer, 45);
+        });
+        resizeObserver.observe(container);
+        rebuildScene();
+        updateCamera();
+        resizeRenderer();
+        renderStatus.textContent = "WebGL · OrbitControls 有効";
+        rafId = requestAnimationFrame(animate);
+      } catch (error) {
+        console.error("Three.js の初期化に失敗しました。", error);
+        message.style.display = "flex";
+        message.textContent = "3D表示を初期化できませんでした。WebGL対応ブラウザーとインターネット接続を確認してください。";
+        renderStatus.textContent = "3Dレンダリングを利用できません";
+      }
+    }
+
+    function scheduleRebuild() {
+      window.clearTimeout(scheduleRebuild.timer);
+      scheduleRebuild.timer = window.setTimeout(rebuildScene, 70);
+    }
+
+    ["warehouse-width", "warehouse-depth", "shelf-count", "rack-levels", "rack-height", "aisle-width", "agv-count"]
+      .forEach((id) => {
+        $(id).addEventListener("input", scheduleRebuild);
+        $(id).addEventListener("change", scheduleRebuild);
+      });
+
+    $("playback-speed").addEventListener("change", () => {
+      animationStart = performance.now();
+    });
+
+    $("scenario").addEventListener("change", (event) => {
+      const scenarios = {
+        standard: { width: 60, depth: 48, count: 72, levels: 4, rackHeight: 7, aisleWidth: 4, agvCount: 3 },
+        compact: { width: 36, depth: 30, count: 36, levels: 3, rackHeight: 5, aisleWidth: 3, agvCount: 2 },
+        "high-volume": { width: 80, depth: 64, count: 240, levels: 6, rackHeight: 11, aisleWidth: 5, agvCount: 5 },
+        wide: { width: 120, depth: 80, count: 420, levels: 7, rackHeight: 13, aisleWidth: 6, agvCount: 6 }
+      };
+      const scenario = scenarios[event.target.value];
+      Object.entries(scenario).forEach(([key, value]) => {
+        const id = {
+          width: "warehouse-width",
+          depth: "warehouse-depth",
+          count: "shelf-count",
+          levels: "rack-levels",
+          rackHeight: "rack-height",
+          aisleWidth: "aisle-width",
+          agvCount: "agv-count"
+        }[key];
+        $(id).value = String(value);
+      });
+      shelves = makeDefaultShelves(scenario.count);
+      setStatus("シナリオを適用しました。", "success");
+      rebuildScene();
+      updateCamera();
+    });
+
+    async function importCsvFile() {
+      const file = $("csv-file").files[0];
+      if (!file) {
+        setStatus("先にCSVファイルを選択してください。", "error");
+        return;
+      }
+      try {
+        const text = await file.text();
+        const imported = parseCsv(text.replace(/^\uFEFF/, ""));
+        shelves = imported.slice(0, 1000);
+        $("shelf-count").value = String(shelves.length);
+        setStatus(`${shelves.length.toLocaleString("ja-JP")}件の棚データを登録しました。`, "success");
+        rebuildScene();
+      } catch (error) {
+        console.error("CSVの読み込みに失敗しました。", error);
+        setStatus(error instanceof Error ? error.message : "CSVを読み込めませんでした。", "error");
+      }
+    }
+
+    $("csv-file").addEventListener("change", importCsvFile);
+    $("apply-csv").addEventListener("click", importCsvFile);
+
+    $("clear-csv").addEventListener("click", () => {
+      $("csv-file").value = "";
+      shelves = makeDefaultShelves(getSettings().count);
+      setStatus("サンプル商品データに戻しました。", "success");
+      rebuildScene();
+    });
+
+    $("toggle-animation").addEventListener("click", (event) => {
+      animationPaused = !animationPaused;
+      event.currentTarget.textContent = animationPaused ? "アニメーション再生" : "一時停止";
+      event.currentTarget.setAttribute("aria-pressed", String(animationPaused));
+      if (!animationPaused) animationStart = performance.now();
+    });
+
+    $("reset-camera").addEventListener("click", updateCamera);
+
+    $("toggle-walls").addEventListener("click", (event) => {
+      showWalls = !showWalls;
+      if (warehouseGroup?.userData.walls) warehouseGroup.userData.walls.visible = showWalls;
+      event.currentTarget.textContent = showWalls ? "壁を表示" : "壁を非表示";
+      event.currentTarget.setAttribute("aria-pressed", String(showWalls));
+    });
+
+    shelves = makeDefaultShelves(getSettings().count);
+    initializeThree();
+
+    window.addEventListener("beforeunload", () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
+      renderer?.dispose();
+      controls?.dispose();
+    });
+  </script>
+</body>
+</html>

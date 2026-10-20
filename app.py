@@ -26,8 +26,6 @@ from warehouse_sim.simulation import (
     simulate_picking,
 )
 from warehouse_sim.visualization import (
-    plot_warehouse_3d,
-    plot_warehouse_animation_3d,
     plot_warehouse_grid,
 )
 
@@ -69,7 +67,6 @@ def run_scenario(
     cargo_size_class: str = CargoSize.MEDIUM.value,
     max_transport_units: int = 5,
     placement_rule: str = "abc",
-    trace_interval: float = 0.5,
 ) -> tuple[np.ndarray, pd.DataFrame, SimulationResult, int]:
     """Generate a reproducible layout and workload for the selected capacities."""
     warehouse = WarehouseGrid(width=50, height=50, aisle_spacing=5)
@@ -92,7 +89,7 @@ def run_scenario(
         cargo_weight_kg=cargo_weight_kg,
         cargo_size_class=cargo_size_class,
         max_transport_units=max_transport_units,
-        trace_interval=trace_interval,
+        record_trace=False,
         warehouse_grid=warehouse.grid,
     )
     return warehouse.grid.copy(), slotting, result, len(orders)
@@ -158,30 +155,10 @@ def apply_recommendation() -> None:
 def render_layout(
     grid: np.ndarray,
     slotting: pd.DataFrame,
-    positions: pd.DataFrame,
-    key_suffix: str = "timeline",
 ) -> None:
-    layout_2d_tab, layout_3d_tab = st.tabs(["2D", "3D（インタラクティブ）"])
-    with layout_2d_tab:
-        figure = plot_warehouse_grid(grid, slotting, positions)
-        st.pyplot(figure, use_container_width=True)
-        plt.close(figure)
-    with layout_3d_tab:
-        figure_3d = plot_warehouse_3d(
-            grid,
-            slotting,
-            agent_positions=positions,
-        )
-        st.plotly_chart(
-            figure_3d,
-            use_container_width=True,
-            config={
-                "scrollZoom": True,
-                "displaylogo": False,
-                "modeBarButtonsToAdd": ["resetCameraDefault3d"],
-            },
-            key=f"warehouse-layout-3d-{key_suffix}",
-        )
+    figure = plot_warehouse_grid(grid, slotting)
+    st.pyplot(figure, use_container_width=True)
+    plt.close(figure)
 
 
 def optimization_charts(
@@ -248,6 +225,11 @@ def main() -> None:
     st.caption(
         "レイアウト・シミュレーション・最適化の結果をタブで確認できます。"
     )
+    st.link_button(
+        "FlexiLayout | 3D Warehouse Studio を開く",
+        "http://127.0.0.1:8765/index.html",
+    )
+    st.caption("詳細な3D空間インタラクティブ確認は FlexiLayout をご利用ください。")
 
     with st.sidebar:
         st.header("基本条件")
@@ -307,14 +289,6 @@ def main() -> None:
                 value=5,
                 step=1,
                 key="transport_capacity_input",
-            )
-            trace_interval = st.selectbox(
-                "シミュレーション記録間隔（時間単位）",
-                options=[0.25, 0.5, 1.0],
-                index=1,
-                format_func=lambda interval: f"{interval:g}",
-                key="trace_interval_input",
-                help="間隔を短くすると位置ログが細かくなり、表示が滑らかになります。",
             )
             st.divider()
             st.subheader("最適化の制約・コスト")
@@ -410,7 +384,6 @@ def main() -> None:
     cargo_weight_kg = float(st.session_state["cargo_weight_input"])
     cargo_size_class = str(st.session_state["cargo_size_input"])
     max_transport_units = int(st.session_state["transport_capacity_input"])
-    trace_interval = float(st.session_state["trace_interval_input"])
     placement_rule = str(st.session_state["placement_rule_input"])
     target_makespan = float(st.session_state["optimization_target_input"])
     max_search_workers = int(st.session_state["optimization_workers_input"])
@@ -443,7 +416,6 @@ def main() -> None:
                 cargo_size_class,
                 int(max_transport_units),
                 placement_rule,
-                trace_interval,
             )
     except (ValueError, RuntimeError) as exc:
         st.error(f"シミュレーションを実行できませんでした: {exc}")
@@ -467,15 +439,15 @@ def main() -> None:
 
     tabs = st.tabs(
         [
-            "倉庫レイアウト・3Dモデル",
-            "リアルタイム・アニメーション",
+            "倉庫レイアウト",
+            "シミュレーション概要・3Dスタジオ",
             "最適化・KPI分析",
         ]
     )
     with tabs[0]:
         st.subheader("倉庫レイアウト")
-        st.caption("2Dグリッドとインタラクティブな3Dモデルを切り替えて確認できます。")
-        render_layout(grid, slotting, pd.DataFrame(), key_suffix="overview")
+        st.caption("倉庫グリッドとABC棚割りを2Dで確認できます。詳細な3D表示は上部のリンクから開けます。")
+        render_layout(grid, slotting)
         with st.expander("棚割りとオーダー完了時間", expanded=False):
             table_columns = st.columns(2)
             with table_columns[0]:
@@ -507,81 +479,17 @@ def main() -> None:
                 )
 
     with tabs[1]:
-        st.subheader("シミュレーション再生")
-        if result.trace.empty:
-            st.info("再生できるエージェント記録はありません。")
-        else:
-            control_column, map_column = st.columns([1, 3], gap="large")
-            with control_column:
-                fps = st.select_slider(
-                    "再生フレームレート",
-                    options=[12, 20, 30],
-                    value=20,
-                    format_func=lambda value: f"{value} FPS",
-                    key="animation_fps",
-                )
-                playback_speed = st.select_slider(
-                    "再生速度",
-                    options=[
-                        "0.5x",
-                        "1.0x (標準)",
-                        "2.0x (高速)",
-                        "5.0x (超高速)",
-                    ],
-                    value="1.0x (標準)",
-                    key="animation_speed",
-                )
-                max_frames = st.slider(
-                    "最大表示フレーム数（負荷調整）",
-                    min_value=30,
-                    max_value=240,
-                    value=120,
-                    step=30,
-                    key="animation_max_frames",
-                )
-                camera_view = st.radio(
-                    "カメラ視点",
-                    options=[
-                        "top",
-                        "perspective",
-                        "side",
-                    ],
-                    format_func=lambda view: {
-                        "perspective": "斜め俯瞰（3Dパース）",
-                        "top": "真上（トップビュー）",
-                        "side": "正面（サイドビュー）",
-                    }[view],
-                    horizontal=False,
-                    key="animation_camera_view",
-                )
-                st.caption(
-                    f"モデル時間: 0～{result.makespan:.1f} / "
-                    f"記録間隔: {trace_interval:g}"
-                )
-                st.caption(
-                    "3Dシーン上部のKPI表示は、再生・一時停止・時間スライダーと同期します。"
-                )
-            with map_column:
-                animation = plot_warehouse_animation_3d(
-                    grid,
-                    result.trace,
-                    slotting,
-                    fps=fps,
-                    max_frames=max_frames,
-                    camera_view=camera_view,
-                    speed_multiplier={
-                        "0.5x": 0.5,
-                        "1.0x (標準)": 1.0,
-                        "2.0x (高速)": 2.0,
-                        "5.0x (超高速)": 5.0,
-                    }[playback_speed],
-                )
-                st.plotly_chart(
-                    animation,
-                    use_container_width=True,
-                    config={"scrollZoom": True, "displaylogo": False},
-                    key="warehouse-agent-animation",
-                )
+        st.info(
+            "詳細な3D空間インタラクティブ確認は FlexiLayout をご利用ください。"
+        )
+        st.link_button(
+            "FlexiLayout | 3D Warehouse Studio を開く",
+            "http://127.0.0.1:8765/index.html",
+        )
+        st.caption(
+            f"シミュレーション結果: メイクスパン {result.makespan:.1f}、"
+            f"完了オーダー数 {order_count}。"
+        )
 
     optimization_signature = (
         int(shelf_count),

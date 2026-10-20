@@ -117,12 +117,10 @@ I/Oポイントから出発します。作業者・フォークリフトの稼�
 シミュレーション結果には、時間ごとのエージェント位置・状態を記録した
 `result.trace`（pandas DataFrame）が含まれます。列は `time`, `agent_id`,
 `agent_type`, `x`, `y`, `state`, `wait_time_total`,
-`queue_count`, `completed_order_count` です。Streamlit上ではPlotlyの再生・一時停止・
-時刻スライダーでアニメーションを操作でき、稼働作業員数・累積待ち時間・待ち要求数・
-完了オーダー数をフレームと同期して確認できます。暗色床、立体棚、I/Oドックの3D空間
-で再生でき、再生速度（0.5x～5.0x）、記録間隔、FPS、表示フレーム数を調整して
-滑らかさと描画負荷のバランスを変更できます。カメラ視点は斜め俯瞰、真上、正面から
-選択でき、作業員とフォークリフトそれぞれの直近の移動軌跡も表示します。
+`queue_count`, `completed_order_count` です。`simulate_picking` は必要に応じて位置ログを記録できます。Streamlitアプリでは
+パフォーマンスを優先して位置ログとブラウザー内アニメーションを省略し、メイクスパン、
+稼働率、待ち時間などのKPIと2Dレイアウトを表示します。インタラクティブな3D倉庫と
+AGVアニメーションは、別ページの `index.html` で確認できます。
 
 `optimize_conditions` は同じ注文データで作業員数、フォークリフト数、
 棚配置ルール（ABC優先/頻度優先）を比較します。時間優先、予算内コスト最小化、
@@ -144,6 +142,13 @@ python -m pip install -r requirements.txt
 
 ```bash
 python -m streamlit run app.py
+```
+
+Streamlitアプリは `http://127.0.0.1:8765/index.html` へのリンクを表示します。
+3D Studioを使う場合は、プロジェクトのルートで別のターミナルを開いて次も実行してください。
+
+```bash
+python -m http.server 8765
 ```
 
 システムの機能、計算方式、前提・制約については
