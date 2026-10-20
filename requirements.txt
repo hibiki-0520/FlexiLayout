@@ -1,0 +1,17 @@
+# Warehouse layout optimization
+scipy>=1.11
+
+# Discrete-event simulation
+simpy>=4.1
+
+# Browser application
+streamlit>=1.35
+
+# Data processing and visualization
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8
+seaborn>=0.13
+
+# Warehouse route/network analysis
+networkx>=3.2
